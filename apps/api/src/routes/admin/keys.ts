@@ -48,6 +48,50 @@ export async function keysRoutes(secured: FastifyInstance): Promise<void> {
     return { success: true };
   });
 
+  secured.put('/api-keys/:id', { schema: { tags: ['admin'] } }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({
+      name: z.string().min(1).optional(),
+      environment: z.enum(['live', 'test', 'dev']).optional(),
+      scopes: z.array(z.enum(['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow', 'admin'])).min(1).optional(),
+    }).parse(req.body);
+    
+    const oldKey = await prisma.apiKey.findUnique({ where: { id } });
+    if (!oldKey) return reply.code(404).send(fail('NOT_FOUND', 'Key not found'));
+    
+    const updated = await prisma.apiKey.update({
+      where: { id },
+      data: {
+        name: body.name ?? oldKey.name,
+        environment: body.environment ?? oldKey.environment,
+        scopes: body.scopes ? body.scopes.join(',') : oldKey.scopes,
+      }
+    });
+
+    // Invalida cache atual da key editada
+    await redis.del(`apiplatform:apikey:v2:${updated.keyHash}`, `apiplatform:apikey:${updated.keyHash}`);
+    
+    return { success: true, key: updated };
+  });
+
+  secured.post('/api-keys/bulk-delete', { schema: { tags: ['admin'] } }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string()).min(1) }).parse(req.body);
+    
+    const keys = await prisma.apiKey.findMany({ where: { id: { in: ids } }, select: { id: true, keyHash: true } });
+    
+    await prisma.apiKey.updateMany({
+      where: { id: { in: keys.map(k => k.id) } },
+      data: { active: false }
+    });
+    
+    const redisKeys = keys.flatMap(k => [`apiplatform:apikey:v2:${k.keyHash}`, `apiplatform:apikey:${k.keyHash}`]);
+    if (redisKeys.length > 0) {
+      await redis.del(...redisKeys);
+    }
+    
+    return { success: true, count: keys.length };
+  });
+
   secured.post('/api-keys/:id/rotate', { schema: { tags: ['admin'] } }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const oldKey = await prisma.apiKey.findUnique({ where: { id } });

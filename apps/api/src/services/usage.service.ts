@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 
 export interface UsageRecord {
   tenantId?: string;
+  apiKeyId?: string;
   capability: string;
   provider: string;
   model: string;
@@ -74,6 +75,7 @@ export class UsageService {
     await prisma.requestLog.create({
       data: {
         tenantId: record.tenantId,
+        apiKeyId: record.apiKeyId,
         capability: record.capability,
         provider: record.provider,
         model: record.model,

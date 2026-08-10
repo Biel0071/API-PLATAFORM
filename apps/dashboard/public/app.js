@@ -629,7 +629,8 @@
 
     async keys() {
       const [{ keys }, { tenants }, { projects }] = await Promise.all([api('/admin/api-keys'), api('/admin/tenants'), api('/admin/projects')]);
-      const scopes=['text','chat','image','video','vision','embed','ocr','workflow'];
+      const scopes = ['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow', 'admin'];
+      
       content().innerHTML = `<h1>API Keys</h1><p class="muted">Crie credenciais independentes por projeto, ambiente e capacidade.</p>
         <div class="card section"><h2>Nova chave</h2><div class="form-grid">
           <label>Nome <input id="k-name" placeholder="lovable-producao" /></label>
@@ -639,14 +640,143 @@
           <label>Expira em <input id="k-expiry" type="datetime-local" /></label>
         </div><div class="scope-list">${scopes.map(x=>`<label><input type="checkbox" value="${x}" ${['text','chat','image'].includes(x)?'checked':''}/> ${x}</label>`).join('')}</div>
         <button id="k-create">Gerar chave</button><span id="k-status" class="muted"></span></div><div id="k-new"></div>
-        ${table(['Nome','Prefixo','Projeto','Ambiente','Escopos','Validade','Status','Ações'],keys.map(k=>[
-          esc(k.name),`<code>${esc(k.prefix)}...</code>`,esc(k.project?.name||'—'),esc(k.environment),esc(k.scopes),k.expiresAt?fmtDate(k.expiresAt):'Sem expiração',badge(k.active,'ativa','revogada'),
-          k.active?`<button class="ghost" data-revoke="${esc(k.id)}">Revogar</button>`:''
-        ]))}`;
+        
+        <div id="bulk-bar" class="bulk-bar hidden">
+          <span id="bulk-count">0 chaves selecionadas</span>
+          <button id="bulk-delete" class="danger">Revogar Selecionadas</button>
+        </div>
+        
+        ${table(
+          ['<input type="checkbox" id="k-select-all" />', 'Nome', 'Prefixo', 'Projeto', 'Ambiente', 'Escopos', 'Validade', 'Status', 'Ações'],
+          keys.map(k=>[
+            `<input type="checkbox" class="k-select" value="${esc(k.id)}" />`,
+            `<a href="#" data-details="${esc(k.id)}" style="font-weight:600; text-decoration:none;">${esc(k.name)}</a>`,
+            `<code>${esc(k.prefix)}...</code>`,
+            esc(k.project?.name||'—'),
+            esc(k.environment),
+            esc(k.scopes),
+            k.expiresAt?fmtDate(k.expiresAt):'Sem expiração',
+            badge(k.active,'ativa','revogada'),
+            (k.active?`<button class="ghost" data-edit="${esc(k.id)}" data-name="${esc(k.name)}" data-env="${esc(k.environment)}" data-scopes="${esc(k.scopes)}">Editar</button> <button class="ghost" data-revoke="${esc(k.id)}">Revogar</button>`:'')
+          ])
+        )}`;
+      
       const filterProjects=()=>{const tenant=$('#k-tenant').value;Array.from($('#k-project').options).forEach((o,i)=>{if(i)o.hidden=o.dataset.tenant!==tenant});if($('#k-project').selectedOptions[0]?.hidden)$('#k-project').value='';};
       $('#k-tenant').addEventListener('change',filterProjects);filterProjects();
-      $('#k-create').addEventListener('click',async()=>{const status=$('#k-status');try{const selected=Array.from(content().querySelectorAll('.scope-list input:checked')).map(x=>x.value);const exp=$('#k-expiry').value;const data=await api('/admin/api-keys',{method:'POST',body:{name:$('#k-name').value||'sem-nome',tenantId:$('#k-tenant').value,projectId:$('#k-project').value||undefined,environment:$('#k-env').value,scopes:selected,expiresAt:exp?new Date(exp).toISOString():undefined}});$('#k-new').innerHTML=`<div class="card key-created"><strong>Chave criada — copie agora</strong><pre class="code" id="new-key">${esc(data.key)}</pre><button id="copy-key">Copiar chave</button></div>`;$('#copy-key').onclick=async()=>{await navigator.clipboard.writeText(data.key);$('#copy-key').textContent='Copiada!'};status.textContent='';}catch(e){status.textContent=e.message;status.className='error';}});
+      
+      $('#k-create').addEventListener('click',async()=>{const status=$('#k-status');try{const selected=Array.from(content().querySelectorAll('.scope-list input:checked')).map(x=>x.value);const exp=$('#k-expiry').value;const data=await api('/admin/api-keys',{method:'POST',body:{name:$('#k-name').value||'sem-nome',tenantId:$('#k-tenant').value,projectId:$('#k-project').value||undefined,environment:$('#k-env').value,scopes:selected,expiresAt:exp?new Date(exp).toISOString():undefined}});$('#k-new').innerHTML=`<div class="card key-created"><strong>Chave criada — copie agora (ela não será exibida novamente!)</strong><pre class="code" id="new-key">${esc(data.key)}</pre><button id="copy-key">Copiar chave</button></div>`;$('#copy-key').onclick=async()=>{await navigator.clipboard.writeText(data.key);$('#copy-key').textContent='Copiada!'};status.textContent='';}catch(e){status.textContent=e.message;status.className='error';}});
+      
       content().querySelectorAll('[data-revoke]').forEach(btn=>btn.addEventListener('click',async()=>{await api(`/admin/api-keys/${btn.dataset.revoke}`,{method:'DELETE'});pages.keys();}));
+      
+      // Bulk Delete
+      const updateBulkBar = () => {
+        const selected = content().querySelectorAll('.k-select:checked');
+        const bar = $('#bulk-bar');
+        if (selected.length > 0) {
+          bar.classList.remove('hidden');
+          $('#bulk-count').textContent = `${selected.length} chaves selecionadas`;
+        } else {
+          bar.classList.add('hidden');
+        }
+      };
+      
+      $('#k-select-all').addEventListener('change', (e) => {
+        content().querySelectorAll('.k-select').forEach(cb => cb.checked = e.target.checked);
+        updateBulkBar();
+      });
+      content().querySelectorAll('.k-select').forEach(cb => cb.addEventListener('change', updateBulkBar));
+      
+      $('#bulk-delete').addEventListener('click', async () => {
+        const ids = Array.from(content().querySelectorAll('.k-select:checked')).map(cb => cb.value);
+        if (!ids.length) return;
+        if (!confirm(\`Tem certeza que deseja revogar \${ids.length} chaves?\`)) return;
+        await api('/admin/api-keys/bulk-delete', { method: 'POST', body: { ids } });
+        pages.keys();
+      });
+      
+      // Modal UI
+      const showModal = (html) => {
+        const overlay = document.getElementById('modal-overlay');
+        if (!overlay) return; // fail-safe if index.html update isn't loaded
+        document.getElementById('modal-body').innerHTML = html;
+        overlay.classList.remove('hidden');
+        document.getElementById('modal-close').onclick = () => overlay.classList.add('hidden');
+      };
+      
+      // Edit
+      content().querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => {
+        const id = btn.dataset.edit;
+        const currentScopes = btn.dataset.scopes.split(',');
+        showModal(`
+          <h2>Editar Chave</h2>
+          <div class="form-grid">
+            <label>Nome <input id="edit-name" value="${esc(btn.dataset.name)}" /></label>
+            <label>Ambiente <select id="edit-env"><option value="live" ${btn.dataset.env==='live'?'selected':''}>Produção</option><option value="test" ${btn.dataset.env==='test'?'selected':''}>Teste</option><option value="dev" ${btn.dataset.env==='dev'?'selected':''}>Desenvolvimento</option></select></label>
+          </div>
+          <div class="scope-list">
+            ${scopes.map(x=>`<label><input type="checkbox" value="${x}" class="edit-scope" ${currentScopes.includes(x)?'checked':''}/> ${x}</label>`).join('')}
+          </div>
+          <div style="margin-top: 16px; display: flex; gap: 8px;">
+            <button id="save-edit">Salvar</button>
+            <button class="ghost" id="rotate-key" style="color:var(--text-danger);">Rotacionar Chave</button>
+          </div>
+          <span id="edit-status" class="muted"></span>
+          <div id="edit-new-key"></div>
+        `);
+        
+        document.getElementById('save-edit').onclick = async () => {
+          const status = document.getElementById('edit-status');
+          try {
+            const selectedScopes = Array.from(document.querySelectorAll('.edit-scope:checked')).map(x=>x.value);
+            await api(`/admin/api-keys/${id}`, {
+              method: 'PUT',
+              body: { name: $('#edit-name').value, environment: $('#edit-env').value, scopes: selectedScopes }
+            });
+            document.getElementById('modal-overlay').classList.add('hidden');
+            pages.keys();
+          } catch(e) { status.textContent = e.message; status.className = 'error'; }
+        };
+        
+        document.getElementById('rotate-key').onclick = async () => {
+          if(!confirm('Rotacionar invalidará a chave atual instantaneamente. Continuar?')) return;
+          try {
+            const data = await api(`/admin/api-keys/${id}/rotate`, { method: 'POST' });
+            document.getElementById('edit-new-key').innerHTML = `<div class="card key-created" style="margin-top:16px;"><strong>Nova chave gerada! (copie agora)</strong><pre class="code">${esc(data.key)}</pre></div>`;
+            pages.keys();
+          } catch(e) { document.getElementById('edit-status').textContent = e.message; }
+        };
+      }));
+      
+      // Details & Logs
+      content().querySelectorAll('[data-details]').forEach(btn => btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const id = btn.dataset.details;
+        const keyData = keys.find(k => k.id === id);
+        showModal(`<h2>Detalhes da Chave: ${esc(keyData.name)}</h2>
+          <p><strong>Status:</strong> ${keyData.active?'Ativa':'Revogada'}</p>
+          <p><strong>Criada em:</strong> ${fmtDate(keyData.createdAt)}</p>
+          <p><strong>Último uso:</strong> ${keyData.lastUsedAt?fmtDate(keyData.lastUsedAt):'Nunca'}</p>
+          <p><strong>Escopos:</strong> ${esc(keyData.scopes)}</p>
+          <hr style="margin:24px 0; border:none; border-top:1px solid var(--border);" />
+          <h3>Logs de Requisição desta Chave</h3>
+          <div id="key-logs-container"><p class="muted">Carregando logs...</p></div>
+        `);
+        
+        try {
+          const { logs } = await api(`/admin/logs?limit=50&apiKeyId=${id}`);
+          const html = logs.length === 0 ? '<p class="muted">Nenhuma requisição encontrada para esta chave.</p>' : table(
+            ['Quando', 'Cap', 'Provider', 'Modelo', 'Status', 'Tokens', 'Tempo'],
+            logs.map(l => [
+              fmtDate(l.createdAt), esc(l.capability), esc(l.provider), esc(l.model),
+              badge(l.success, 'ok', l.errorCode || 'erro'),
+              l.totalTokens, fmtMs(l.durationMs)
+            ])
+          );
+          document.getElementById('key-logs-container').innerHTML = html;
+        } catch(err) {
+          document.getElementById('key-logs-container').innerHTML = '<p class="error">Falha ao carregar logs.</p>';
+        }
+      }));
     },
 
     async comfyWizard() {

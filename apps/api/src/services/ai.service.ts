@@ -178,6 +178,7 @@ export async function execute<T>(
         metrics.requests.inc({ capability, provider: (cached as any)?.provider, cached: 'true', status: 'ok' });
         usageService.record({
           tenantId: (ctx.tenantId || ""),
+          apiKeyId: ctx.apiKeyId,
           capability,
           provider: (cached as any)?.provider,
           model: (cached as any).model,
@@ -210,7 +211,7 @@ export async function execute<T>(
           const res = await sharedCall;
           metrics.requests.inc({ capability, provider: provider.name, cached: 'true', status: 'ok' });
           usageService.record({
-            tenantId: (ctx.tenantId || ""), capability, provider: provider.name, model: res.model,
+            tenantId: (ctx.tenantId || ""), apiKeyId: ctx.apiKeyId, capability, provider: provider.name, model: res.model,
             cached: true, success: true, durationMs: 0, tokens: res.tokens,
           });
           return enforceSynchronousQuality(ok({
@@ -245,6 +246,7 @@ export async function execute<T>(
       if (res.tokens?.total) metrics.tokens.inc({ provider: provider.name }, res.tokens.total);
       usageService.record({
         tenantId: (ctx.tenantId || ""),
+        apiKeyId: ctx.apiKeyId,
         capability,
         provider: provider.name,
         model: res.model,
@@ -273,6 +275,7 @@ export async function execute<T>(
       metrics.requests.inc({ capability, provider: provider.name, cached: 'false', status: 'error' });
       usageService.record({
         tenantId: (ctx.tenantId || ""),
+        apiKeyId: ctx.apiKeyId,
         capability,
         provider: provider.name,
         model: requestedModel,

@@ -12,10 +12,11 @@ export async function observabilityRoutes(secured: FastifyInstance): Promise<voi
         limit: z.coerce.number().int().min(1).max(500).default(100),
         provider: z.string().optional(),
         capability: z.string().optional(),
+        apiKeyId: z.string().optional(),
       })
       .parse(req.query);
     const logs = await prisma.requestLog.findMany({
-      where: { provider: query.provider, capability: query.capability },
+      where: { provider: query.provider, capability: query.capability, apiKeyId: query.apiKeyId },
       orderBy: { createdAt: 'desc' },
       take: query.limit,
     });

@@ -194,7 +194,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       });
     }
     try {
-      return await execute('chat', body, (p) => p.generateText(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+      return await execute('chat', body, (p) => p.generateText(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     } finally {
       release();
     }
@@ -222,12 +222,12 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/image', { config: rlImage, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = imageSchema.parse(req.body);
     if (!body.wait) {
-      const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+      const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const response = await execute('image', body, (p) => p.generateImage(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => p.generateImage(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: body.image ? 'image-to-image' : 'text-to-image', seed: body.seed });
   });
 
@@ -240,12 +240,12 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       // ficar pronta. wait:false devolve o jobId na hora; o chamador consulta
       // GET /v1/jobs/:id ate status=completed, sem nunca segurar uma conexao
       // HTTP proxiada por mais de 100s.
-      const queued = await enqueueWithTiming('image', { ...body, image: body.image, denoise: body.strength }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+      const queued = await enqueueWithTiming('image', { ...body, image: body.image, denoise: body.strength }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).imageToImage(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).imageToImage(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'image-to-image', seed: body.seed });
   });
 
@@ -255,7 +255,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/image-gallery', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
     const raw = imageGallerySchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'gallery' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
@@ -267,7 +267,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/image-multiangle', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
     const raw = multiAngleSchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'multiangle' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
@@ -276,7 +276,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/video-to-image', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
     const raw = videoToImageSchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'video-to-image' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
@@ -285,32 +285,32 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/video', { config: rlImage, schema: { tags: ['v1', 'video'] } }, async (req, reply) => {
     const raw = videoToImageSchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'video-to-image' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
   });
   app.post('/remove-background', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = removeBackgroundSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).removeBackground(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).removeBackground(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, kind: 'remove-background' });
   });
 
   app.post('/inpaint', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = inpaintSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).inpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).inpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'inpaint', seed: body.seed });
   });
 
   app.post('/outpaint', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = outpaintSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).outpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).outpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'outpaint', seed: body.seed });
   });
 
   app.post('/controlnet', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = controlnetSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).controlnet(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).controlnet(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'controlnet-' + body.controlType, seed: body.seed });
   });
 
@@ -318,41 +318,41 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/upscale', { config: rlImage, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = upscaleSchema.parse(req.body);
     if (!body.wait) {
-      const queued = await enqueueWithTiming('image', { ...body, __kind: 'upscale' }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+      const queued = await enqueueWithTiming('image', { ...body, __kind: 'upscale' }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const response = await execute('image', body, (p) => (p as any).upscale(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const response = await execute('image', body, (p) => (p as any).upscale(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, kind: 'upscale' });
   });
 
   // ---------- Vision ----------
   app.post('/vision', { config: rlVision, schema: { tags: ['v1'] } }, async (req) => {
     const body = visionSchema.parse(req.body);
-    return execute('vision', body, (p) => p.vision(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    return execute('vision', body, (p) => p.vision(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
   });
 
   // ---------- Embeddings ----------
   app.post('/embed', { config: rlEmbed, schema: { tags: ['v1'] } }, async (req) => {
     const body = embedSchema.parse(req.body);
-    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
   });
 
   app.post('/embedding', { config: rlEmbed, schema: { tags: ['v1'] } }, async (req) => {
     const body = embedSchema.parse(req.body);
-    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
   });
   // ---------- OCR ----------
   app.post('/ocr', { config: rlText, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = ocrSchema.parse(req.body);
     if (!body.wait) {
-      const queued = await enqueueWithTiming('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+      const queued = await enqueueWithTiming('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const { result } = await enqueueAndWait('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    const { result } = await enqueueAndWait('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
     return result;
   });
 
@@ -507,19 +507,19 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
 
   app.post('/audio', { config: rlAudio, schema: { tags: ['v1'] } }, async (req) => {
     const body = audioSchema.parse(req.body);
-    return execute('audio', body, (p) => p.audio(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    return execute('audio', body, (p) => p.audio(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
   });
 
   app.post('/mission', { config: rlMission, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = missionSchema.parse(req.body);
     if (body.async) {
-      const queued = await enqueueWithTiming('mission' as any, body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+      const queued = await enqueueWithTiming('mission' as any, body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
     // Implementacao sincrona usa o novo Service de Mission
-    return execute('mission', body, (p) => p.mission ? p.mission(body) : (p as any).notSupported('mission'), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId });
+    return execute('mission', body, (p) => p.mission ? p.mission(body) : (p as any).notSupported('mission'), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
   });
   // ---------- Modelos ----------
   app.get('/models', { schema: { tags: ['v1'] } }, async (req) => {

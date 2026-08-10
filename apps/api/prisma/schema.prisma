@@ -85,6 +85,7 @@ model ApiKey {
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  requestLogs RequestLog[]
 
   @@index([tenantId])
   @@index([projectId])
@@ -153,6 +154,7 @@ model Job {
 model RequestLog {
   id               String   @id @default(cuid())
   tenantId         String?
+  apiKeyId         String?
   capability       String
   provider         String
   model            String
@@ -167,9 +169,11 @@ model RequestLog {
   createdAt        DateTime @default(now())
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@index([provider, createdAt])
+  @@index([apiKeyId, createdAt])
 }
 
 model Usage {
