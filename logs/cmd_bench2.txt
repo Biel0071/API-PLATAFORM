@@ -1,0 +1,15 @@
+cd /root/AI-LLM
+
+echo "=== COPYING BENCHMARKS TO CONTAINER ==="
+docker cp /root/AI-LLM/benchmarks :/app/benchmarks
+docker cp /root/AI-LLM/tsconfig.base.json :/app/tsconfig.base.json
+
+echo "=== RUNNING BENCHMARKS INSIDE CONTAINER ==="
+docker-compose exec -T api sh -c "cd /app && npx tsx benchmarks/benchmark.ts"
+docker-compose exec -T api sh -c "cd /app && npx tsx benchmarks/report.ts" > /root/AI-LLM/benchmark_output.txt
+
+echo "=== BENCHMARK REPORT ==="
+cat /root/AI-LLM/benchmark_output.txt
+
+echo "=== CHECKING RESOURCES ==="
+docker stats --no-stream

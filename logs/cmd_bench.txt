@@ -1,0 +1,21 @@
+cd /root/AI-LLM
+echo "=== PULLING LATEST CODE ==="
+git fetch origin
+git reset --hard origin/main
+
+echo "=== REBUILDING CONTAINERS ==="
+docker-compose build api worker
+docker-compose up -d api worker
+
+echo "=== WAITING FOR SERVICES ==="
+sleep 15
+
+echo "=== RUNNING BENCHMARKS INSIDE CONTAINER ==="
+docker-compose exec -T api npm run benchmark
+docker-compose exec -T api npm run benchmark:report > /root/AI-LLM/benchmark_output.txt
+
+echo "=== BENCHMARK REPORT ==="
+cat /root/AI-LLM/benchmark_output.txt
+
+echo "=== CHECKING RESOURCES ==="
+docker stats --no-stream

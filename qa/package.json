@@ -1,0 +1,13 @@
+{
+  "name": "qa-tests",
+  "version": "1.0.0",
+  "description": "Enterprise Testing System",
+  "scripts": {
+    "test:flash": "node stress/api-flood.js && node analyze-tests.js",
+    "test:ultimate": "npx playwright test e2e/level3-real-journey.spec.ts && node analyze-tests.js"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0",
+    "@playwright/test": "^1.44.0"
+  }
+}

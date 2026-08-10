@@ -1,0 +1,32 @@
+echo y > yes.txt
+
+# Cria o arquivo de lote SSH
+$cmd = @"
+cd /workspace
+git fetch origin
+git reset --hard origin/main
+
+echo "=== REBUILDING CONTAINERS ==="
+docker-compose build worker api
+docker-compose up -d worker api
+
+echo "=== WAITING FOR SERVICES ==="
+sleep 15
+
+echo "=== TEST 1: DAG COMPLEXO (SENTIMENTO + TRADUCAO) ==="
+curl -s -X POST http://localhost:3000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer test_token_admin" -d '{"model": "auto", "messages": [{"role": "user", "content": "Analise o sentimento de I love AI Gateway e depois traduza para o frances"}]}' > result_dag.json
+
+cat result_dag.json
+
+echo -e "\n=== TEST 2: CACHE TEST (MESMO PAYLOAD) ==="
+curl -s -X POST http://localhost:3000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer test_token_admin" -d '{"model": "auto", "messages": [{"role": "user", "content": "Analise o sentimento de I love AI Gateway e depois traduza para o frances"}]}' > result_cache.json
+
+cat result_cache.json
+
+echo -e "\n=== WORKER LOGS (TRACE DO DAG) ==="
+docker logs --tail 100 worker
+"@
+
+Out-File -FilePath cmd.txt -InputObject $cmd -Encoding ASCII
+
+cmd.exe /c "plink.exe -ssh root@209.50.241.215 -pw ZXVvOa8DEsfg9Jby -m cmd.txt < yes.txt" > ssh_out.txt

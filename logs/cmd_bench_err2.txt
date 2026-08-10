@@ -1,0 +1,22 @@
+cd /root/AI-LLM
+
+echo "=== RUNNING BENCHMARKS IN TEMP CONTAINER WITH ERROR LOG ==="
+docker run --rm --network host -v /root/AI-LLM:/app -w /app node:22-alpine sh -c "npm install -g tsx && tsx -e \"
+async function run() {
+  try {
+    const res = await fetch('http://127.0.0.1:3000/v1/health');
+    console.log('Health:', await res.text());
+    
+    const res2 = await fetch('http://127.0.0.1:3000/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer sk-12345'},
+      body: JSON.stringify({model: 'fast', messages: [{role: 'user', content: 'hello'}]})
+    });
+    console.log('Chat Status:', res2.status);
+    console.log('Chat Body:', await res2.text());
+  } catch(e) {
+    console.error('Fetch Error:', e);
+  }
+}
+run();
+\""

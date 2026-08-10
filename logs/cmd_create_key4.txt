@@ -1,0 +1,29 @@
+cd /root/AI-LLM
+
+echo "=== CREATING API KEY ==="
+docker-compose exec -T api sh -c "node -e \"
+const { PrismaClient } = require('@prisma/client');
+const { createHash } = require('node:crypto');
+const prisma = new PrismaClient();
+
+function hashApiKey(key) {
+  return createHash('sha256').update(key).digest('hex');
+}
+
+async function run() {
+  let tenant = await prisma.tenant.findFirst();
+  if (!tenant) {
+     tenant = await prisma.tenant.create({ data: { name: 'Default', slug: 'default' } });
+  }
+  await prisma.apiKey.create({
+    data: {
+      keyHash: hashApiKey('sk-12345'),
+      name: 'Benchmark Key',
+      prefix: 'sk-12345'.slice(0, 7),
+      tenantId: tenant.id
+    }
+  }).catch(e => console.log('Already exists or error:', e.message));
+  console.log('Key created');
+}
+run();
+\""

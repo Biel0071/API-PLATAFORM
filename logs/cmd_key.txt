@@ -1,0 +1,4 @@
+cd /root/AI-LLM
+
+echo "=== FINDING A VALID API KEY ==="
+docker-compose exec -T api sh -c "node -e \"const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); prisma.apiKey.findFirst().then(k => console.log('KEY:', k?.key)).catch(console.error).finally(()=>process.exit())\""
