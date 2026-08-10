@@ -128,14 +128,14 @@
           <div id="live-status" class="badge ok">SISTEMA ONLINE</div>
         </div>
         <div class="cards">
-          ${card('Latencia Global', '0ms', '', 'home-latency')}
-          ${card('Requests (24h)', '0', '', 'home-reqs')}
-          ${card('Tokens (24h)', '0', '', 'home-tokens')}
-          ${card('Custo (24h)', '$0.00', '', 'home-cost')}
-          ${card('Tenants Ativos', '0', '', 'home-tenants')}
-          ${card('Uptime', '0s', '', 'home-uptime')}
-          ${card('Memoria', '0MB', '', 'home-mem')}
-          ${card('Workers', '0', 'ok', 'home-workers')}
+          <div class="card"><div class="label">Latencia Global</div><div class="value" id="home-latency">—</div></div>
+          <div class="card"><div class="label">Requests (24h)</div><div class="value" id="home-reqs">0</div></div>
+          <div class="card"><div class="label">Tokens (24h)</div><div class="value" id="home-tokens">0</div></div>
+          <div class="card"><div class="label">Custo (24h)</div><div class="value" id="home-cost">$0.00</div></div>
+          <div class="card"><div class="label">Tenants Ativos</div><div class="value" id="home-tenants">0</div></div>
+          <div class="card"><div class="label">Uptime</div><div class="value" id="home-uptime">0s</div></div>
+          <div class="card"><div class="label">Memoria</div><div class="value" id="home-mem">0MB</div></div>
+          <div class="card"><div class="label">Workers</div><div class="value ok" id="home-workers">0</div></div>
         </div>
         <div class="section" style="margin-top:2rem;">
           <h2>Modulos da Plataforma</h2>
@@ -150,6 +150,7 @@
             </table>
           </div>
         </div>`;
+
       
       const updateHome = async () => {
         if (location.hash.replace('#/', '') !== 'home' && location.hash !== '') return;
@@ -160,7 +161,8 @@
           ]);
           
           if ($('#home-latency')) {
-            $('#home-latency').textContent = (health.latency || o.last24h.avgDurationMs) + 'ms';
+            const latency = health.latency || overview.last24h.avgDurationMs;
+            $('#home-latency').textContent = latency + 'ms';
             $('#home-reqs').textContent = overview.last24h.requests;
             $('#home-tokens').textContent = overview.last24h.totalTokens;
             $('#home-cost').textContent = '$' + Number(overview.last24h.cost).toFixed(4);
@@ -943,8 +945,7 @@
           $('#pg-output').textContent = 'Carregando...';
 
           try {
-            const base = location.origin.replace(':8080', ':3000');
-            const res = await fetch(base + endpoint, {
+            const res = await fetch(location.origin + endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': key },
               body: JSON.stringify({ prompt })
@@ -1061,77 +1062,87 @@
       }
     }
 
-    // Enterprise Premium Routes Addition
-    pages.health = async () => {
-      content().innerHTML = '<h1>Health Check (Real-time)</h1><pre id="health-json"></pre>';
-      const update = async () => {
-        if (location.hash.replace('#/', '') !== 'health') return;
-        try {
-          const res = await fetch(API + '/v1/health').then(r => r.json());
-          $('#health-json').textContent = JSON.stringify(res, null, 2);
-        } catch(e) {}
-        setTimeout(update, 2000);
-      };
-      update();
-    };
-    
-    pages.fenix = async () => {
-      content().innerHTML = `
-        <h1>🚀 FÊNIX Connect</h1>
-        <p class="muted">Integração nativa com FÊNIX OS e ICP Panel.</p>
-        <div class="section" style="margin-top:2rem">
-          <h2>String de Conexão (Runtime)</h2>
-          <div class="card">
-            <pre style="background:transparent; padding:0; margin:0;" id="runtime-json">Carregando...</pre>
-          </div>
-          <br>
-          <button id="fenix-sync">Forçar Sincronização ICP</button>
-          <span id="fenix-res" style="margin-left:1rem;"></span>
-        </div>
-      `;
+  // Enterprise Premium Routes Addition (must be before route() call)
+  pages.health = async () => {
+    content().innerHTML = '<h1>Health Check (Real-time)</h1><pre id="health-json"></pre>';
+    const update = async () => {
+      if (location.hash.replace('#/', '') !== 'health') return;
       try {
-        const res = await fetch(API + '/v1/runtime').then(r => r.json());
-        $('#runtime-json').textContent = JSON.stringify(res, null, 2);
-      } catch(e) { $('#runtime-json').textContent = 'Erro ao carregar runtime'; }
-      $('#fenix-sync').addEventListener('click', () => {
-        $('#fenix-res').textContent = 'Sincronizado via FÊNIX Mesh API.';
-        $('#fenix-res').className = 'ok';
-      });
+        const res = await fetch(API + '/v1/health').then(r => r.json());
+        $('#health-json').textContent = JSON.stringify(res, null, 2);
+      } catch(e) {}
+      setTimeout(update, 2000);
     };
+    update();
+  };
+  
+  pages.fenix = async () => {
+    content().innerHTML = `
+      <h1>🚀 FÊNIX Connect</h1>
+      <p class="muted">Integração nativa com FÊNIX OS e ICP Panel.</p>
+      <div class="section" style="margin-top:2rem">
+        <h2>String de Conexão (Runtime)</h2>
+        <div class="card">
+          <pre style="background:transparent; padding:0; margin:0;" id="runtime-json">Carregando...</pre>
+        </div>
+        <br>
+        <button id="fenix-sync">Forçar Sincronização ICP</button>
+        <span id="fenix-res" style="margin-left:1rem;"></span>
+      </div>
+    `;
+    try {
+      const res = await fetch(API + '/v1/runtime').then(r => r.json());
+      $('#runtime-json').textContent = JSON.stringify(res, null, 2);
+    } catch(e) { $('#runtime-json').textContent = 'Serviço de runtime não disponível nesta configuração'; }
+    $('#fenix-sync').addEventListener('click', () => {
+      $('#fenix-res').textContent = 'Sincronizado via FÊNIX Mesh API.';
+      $('#fenix-res').className = 'ok';
+    });
+  };
 
-    pages.icp = async () => {
-      content().innerHTML = `
-        <h1>Integração ICP</h1>
-        <div class="cards">
-          ${card('Proxy Manager', 'Nginx', 'ok')}
-          ${card('SSL', 'Certbot / Let\'s Encrypt', 'ok')}
-          ${card('Domain', 'vps10363.panel.icontainer.net')}
-          ${card('Status', 'ONLINE', 'ok')}
-        </div>
-      `;
-    };
+  pages.icp = async () => {
+    content().innerHTML = `
+      <h1>Integração ICP</h1>
+      <div class="cards">
+        ${card('Proxy Manager', 'Nginx', 'ok')}
+        ${card('SSL', "Certbot / Let's Encrypt", 'ok')}
+        ${card('Domain', 'vps10363.panel.icontainer.net')}
+        ${card('Status', 'ONLINE', 'ok')}
+      </div>
+    `;
+  };
 
-    pages.mission = async () => {
-      content().innerHTML = `
-        <h1>Mission Viewer</h1>
-        <div class="cards">
-          ${card('Missões Ativas', '0')}
-          ${card('Missões Hoje', '0')}
-          ${card('Falhas', '0')}
+  pages.mission = async () => {
+    content().innerHTML = `
+      <h1>Mission Viewer</h1>
+      <div class="cards">
+        ${card('Missões Ativas', '0')}
+        ${card('Missões Hoje', '0')}
+        ${card('Falhas', '0')}
+      </div>
+      <div class="section">
+        <h2>Radar de Missões</h2>
+        <div style="width:100%; height:300px; background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
+          <div style="position:absolute; width:100%; height:100%; background: radial-gradient(circle, transparent 20%, var(--bg-surface) 100%), repeating-radial-gradient(transparent 0, transparent 40px, rgba(59,130,246,0.1) 40px, rgba(59,130,246,0.1) 41px);"></div>
+          <div style="position:absolute; width:50%; height:2px; background:linear-gradient(90deg, transparent, var(--accent)); top:50%; left:50%; transform-origin:left; animation: radar 4s linear infinite;"></div>
+          <span style="z-index:2; font-family:var(--font-display); font-size:1.5rem; color:var(--accent);">NENHUMA MISSÃO ATIVA</span>
         </div>
-        <div class="section">
-          <h2>Radar de Missões</h2>
-          <div style="width:100%; height:300px; background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;">
-            <div style="position:absolute; width:100%; height:100%; background: radial-gradient(circle, transparent 20%, var(--bg-surface) 100%), repeating-radial-gradient(transparent 0, transparent 40px, rgba(59,130,246,0.1) 40px, rgba(59,130,246,0.1) 41px);"></div>
-            <div style="position:absolute; width:50%; height:2px; background:linear-gradient(90deg, transparent, var(--accent)); top:50%; left:50%; transform-origin:left; animation: radar 4s linear infinite;"></div>
-            <span style="z-index:2; font-family:var(--font-display); font-size:1.5rem; color:var(--accent);">NENHUMA MISSÃO ATIVA</span>
-          </div>
-        </div>
-        <style>@keyframes radar { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>
-      `;
-    };
-    
-    pages.runtime = pages.fenix;
+      </div>
+      <style>@keyframes radar { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>
+    `;
+  };
+  
+  pages.runtime = pages.fenix;
+  pages.metrics = async () => {
+    try {
+      const res = await fetch(API + '/metrics', { headers: { authorization: `Bearer ${token()}` } });
+      const text = await res.text();
+      content().innerHTML = `<h1>Prometheus Metrics</h1><pre class="code" style="font-size:0.75rem; max-height:80vh; overflow:auto;">${esc(text)}</pre>`;
+    } catch(e) {
+      content().innerHTML = `<h1>Prometheus Metrics</h1><p class="error">Erro ao carregar: ${esc(e.message)}</p>`;
+    }
+  };
+  pages.tenants = pages.settings;
 
   window.addEventListener('hashchange', route);
 
