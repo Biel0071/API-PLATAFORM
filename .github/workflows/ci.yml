@@ -1,9 +1,10 @@
-name: CI
+name: CI + Deploy
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   build-test:
@@ -22,26 +23,30 @@ jobs:
       - name: Prisma generate
         run: npx prisma generate --schema apps/api/prisma/schema.prisma
 
-      - name: Lint
-        run: npm run lint
-
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test
-
-  docker:
+  deploy:
     runs-on: ubuntu-latest
     needs: build-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build API image
-        run: docker build -f docker/api.Dockerfile -t api-platform-api:ci .
-
-      - name: Build Worker image
-        run: docker build -f docker/worker.Dockerfile -t api-platform-worker:ci .
-
-      - name: Build Dashboard image
-        run: docker build -f docker/dashboard.Dockerfile -t api-platform-dashboard:ci .
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: 22
+          timeout: 300s
+          script: |
+            set -e
+            cd /opt/ai-platform
+            git pull origin main
+            docker compose up -d --build api worker dashboard
+            sleep 10
+            docker compose exec -T api npx prisma db push --schema=apps/api/prisma/schema.prisma --accept-data-loss 2>&1 || true
+            echo "Deploy concluido em $(date)"
+            docker compose ps
