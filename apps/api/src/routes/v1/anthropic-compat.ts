@@ -85,6 +85,34 @@ export async function registerAnthropicCompatRoutes(fastify: FastifyInstance) {
       } else {
         const syncResponse = response as any;
         const content = syncResponse.result?.message?.content || syncResponse.result?.text || '';
+        const resolvedModel = syncResponse.model || model || 'auto';
+        const inputTokens = syncResponse.tokens?.prompt || 0;
+        const outputTokens = syncResponse.tokens?.completion || 0;
+
+        // Alguns providers locais (como Ollama) retornam uma resposta completa
+        // mesmo quando o cliente pede streaming. O Claude Desktop exige SSE
+        // nesse caso, entao convertemos o resultado sincronizado para a sequencia
+        // oficial de eventos Anthropic em vez de devolver JSON comum.
+        if (stream) {
+          reply.raw.setHeader('Content-Type', 'text/event-stream');
+          reply.raw.setHeader('Cache-Control', 'no-cache');
+          reply.raw.setHeader('Connection', 'keep-alive');
+          reply.raw.flushHeaders();
+
+          reply.raw.write(`event: message_start\ndata: ${JSON.stringify({
+            type: 'message_start',
+            message: { id: msgId, type: 'message', role: 'assistant', content: [], model: resolvedModel, stop_reason: null, stop_sequence: null, usage: { input_tokens: inputTokens, output_tokens: 0 } },
+          })}\n\n`);
+          reply.raw.write(`event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })}\n\n`);
+          if (content) {
+            reply.raw.write(`event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: content } })}\n\n`);
+          }
+          reply.raw.write(`event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n\n`);
+          reply.raw.write(`event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: outputTokens } })}\n\n`);
+          reply.raw.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
+          reply.raw.end();
+          return;
+        }
         
         return reply.send({
           id: msgId,
@@ -96,12 +124,12 @@ export async function registerAnthropicCompatRoutes(fastify: FastifyInstance) {
               text: content
             }
           ],
-          model: model || 'auto',
+          model: resolvedModel,
           stop_reason: "end_turn",
           stop_sequence: null,
           usage: {
-            input_tokens: syncResponse.tokens?.prompt_tokens || 0,
-            output_tokens: syncResponse.tokens?.completion_tokens || 0
+            input_tokens: inputTokens,
+            output_tokens: outputTokens
           }
         });
       }
