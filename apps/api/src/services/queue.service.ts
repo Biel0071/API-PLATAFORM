@@ -61,6 +61,7 @@ export interface CallbackConfig {
 export interface EnqueueOptions {
   tenantId?: string;
   projectId?: string;
+  apiKeyId?: string;
   priority?: number;
   delayMs?: number;
   callback?: CallbackConfig;

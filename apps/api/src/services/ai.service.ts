@@ -31,6 +31,7 @@ export async function reloadRegistry(): Promise<ProviderRegistry> {
 export interface ExecuteContext {
   tenantId?: string;
   projectId?: string;
+  apiKeyId?: string;
   cache?: boolean;
 }
 
