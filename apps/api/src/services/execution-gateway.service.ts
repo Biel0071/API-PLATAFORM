@@ -38,6 +38,12 @@ export class DirectExecutor implements Executor {
     const modelParts = targetModel.split('/');
     if (modelParts.length > 1 && cascade.includes(modelParts[0])) {
       cascade = [modelParts[0], ...cascade.filter(p => p !== modelParts[0])];
+    } else if (targetModel.toLowerCase().includes('claude')) {
+      if (!cascade.includes('anthropic')) {
+        cascade = ['anthropic', ...cascade];
+      } else {
+        cascade = ['anthropic', ...cascade.filter(p => p !== 'anthropic')];
+      }
     }
     
     const errors: any[] = [];

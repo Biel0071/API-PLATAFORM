@@ -53,15 +53,15 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
         reply.raw.setHeader('Connection', 'keep-alive');
         reply.raw.flushHeaders();
 
-        // 1. Envia o evento de Gateway Trace
-        reply.raw.write(`event: gateway\\ndata: ${JSON.stringify(gatewayTrace)}\\n\\n`);
+        // 1. Opcional: Alguns clientes quebram se receberem custom events, então removemos o `event: ...` dos principais
+        reply.raw.write(`data: ${JSON.stringify({ _gateway: gatewayTrace })}\n\n`);
 
-        // 2. Envia Status Inicial
-        const statusMsg = ctx.decision?.mode === 'FAST' ? '⚡ Fast Response' : (ctx.decision?.mode === 'WORKFLOW' ? '⚙️ Executando Workflow' : '🧠 AI Thinking');
-        reply.raw.write(`event: status\\ndata: ${JSON.stringify({ message: statusMsg })}\\n\\n`);
+        // 2. Envia Status Inicial (como um comentário ou custom chunk que não quebre)
+        // const statusMsg = ctx.decision?.mode === 'FAST' ? '⚡ Fast Response' : (ctx.decision?.mode === 'WORKFLOW' ? '⚙️ Executando Workflow' : '🧠 AI Thinking');
+        // reply.raw.write(`data: ${JSON.stringify({ message: statusMsg })}\n\n`);
 
         const heartbeat = setInterval(() => {
-          reply.raw.write(':ping\\n\\n');
+          reply.raw.write(':ping\n\n');
         }, 15000);
 
         try {
@@ -70,7 +70,7 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
           
           for await (const chunk of streamResponse.chunks) {
             if (chunk.type === 'status') {
-              reply.raw.write(`event: status\\ndata: ${JSON.stringify({ message: chunk.message })}\\n\\n`);
+              // Ignore ou mande como custom se suportado
               continue;
             }
 
@@ -82,7 +82,7 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
                 model: streamResponse.model,
                 choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }]
               };
-              reply.raw.write(`event: delta\\ndata: ${JSON.stringify(rolePayload)}\\n\\n`);
+              reply.raw.write(`data: ${JSON.stringify(rolePayload)}\n\n`);
               roleSent = true;
             }
 
@@ -98,17 +98,20 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
                   finish_reason: chunk.finishReason || null 
                 }]
               };
-              reply.raw.write(`event: delta\\ndata: ${JSON.stringify(chunkPayload)}\\n\\n`);
+              reply.raw.write(`data: ${JSON.stringify(chunkPayload)}\n\n`);
             } else if (chunk.type === 'usage') {
-              reply.raw.write(`event: usage\\ndata: ${JSON.stringify({ 
-                prompt_tokens: chunk.promptTokens,
-                completion_tokens: chunk.completionTokens,
-                total_tokens: chunk.totalTokens
-              })}\\n\\n`);
+              // OpenAI padrao manda uso num chunk final ou em options=stream_options
+              reply.raw.write(`data: ${JSON.stringify({ 
+                usage: {
+                  prompt_tokens: chunk.promptTokens,
+                  completion_tokens: chunk.completionTokens,
+                  total_tokens: chunk.totalTokens
+                }
+              })}\n\n`);
             }
           }
           
-          reply.raw.write('event: done\\ndata: [DONE]\\n\\n');
+          reply.raw.write('data: [DONE]\n\n');
         } finally {
           clearInterval(heartbeat);
           reply.raw.end();
