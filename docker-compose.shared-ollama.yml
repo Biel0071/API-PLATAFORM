@@ -1,0 +1,15 @@
+services:
+  api:
+    networks:
+      - default
+      - shared-ollama
+
+  worker:
+    networks:
+      - default
+      - shared-ollama
+
+networks:
+  shared-ollama:
+    external: true
+    name: ${SHARED_OLLAMA_NETWORK}
