@@ -153,6 +153,7 @@ export class OllamaProvider extends BaseProvider {
           model,
           messages,
           stream: false,
+          tools: input.tools,
           keep_alive: -1,
           options: { temperature: input.temperature, num_predict: input.maxTokens },
         },
@@ -162,8 +163,17 @@ export class OllamaProvider extends BaseProvider {
       releaseGpu();
       release();
     }
+    const toolCalls = Array.isArray(data?.message?.tool_calls)
+      ? data.message.tool_calls.map((call: any) => ({
+          id: call?.id,
+          name: String(call?.function?.name ?? ''),
+          arguments: typeof call?.function?.arguments === 'string'
+            ? (() => { try { return JSON.parse(call.function.arguments); } catch { return { value: call.function.arguments }; } })()
+            : (call?.function?.arguments ?? {}),
+        }))
+      : undefined;
     return {
-      result: { message: { role: 'assistant', content: data?.message?.content ?? '' } },
+      result: { message: { role: 'assistant', content: data?.message?.content ?? '', toolCalls } },
       model,
       tokens: this.mapUsage(data),
       raw: data,

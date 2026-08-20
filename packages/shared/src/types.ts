@@ -50,6 +50,8 @@ export interface ChatInput {
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
+  tools?: any;
+  toolChoice?: any;
 }
 
 export interface GenerateImageInput {
@@ -128,6 +130,7 @@ export type ProviderChunk =
   | { type: 'usage'; promptTokens: number; completionTokens: number; totalTokens: number }
   | { type: 'trace'; traceId: string }
   | { type: 'error'; message: string; code?: string }
+  | { type: 'tool_calls'; toolCalls: Array<{ index: number; id?: string; name?: string; arguments?: string }> }
   | { type: 'done' };
 
 export interface ProviderStream {

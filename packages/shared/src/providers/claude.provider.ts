@@ -90,6 +90,8 @@ export class ClaudeProvider extends BaseProvider {
     };
     if (system) body.system = system;
     if (input.temperature !== undefined) body.temperature = input.temperature;
+    if (input.tools !== undefined) body.tools = input.tools;
+    if (input.toolChoice !== undefined) body.tool_choice = input.toolChoice;
 
     const data = await this.http<any>('https://api.anthropic.com/v1/messages', {
       method: 'POST',

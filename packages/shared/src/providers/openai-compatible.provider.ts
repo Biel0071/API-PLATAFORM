@@ -106,6 +106,8 @@ export class OpenAICompatibleProvider extends BaseProvider {
     const body: Record<string, unknown> = { model, messages };
     if (input.temperature !== undefined) body.temperature = input.temperature;
     if (input.maxTokens !== undefined) body.max_tokens = input.maxTokens;
+    if (input.tools !== undefined) body.tools = input.tools;
+    if (input.toolChoice !== undefined) body.tool_choice = input.toolChoice;
     if (input.stream) body.stream = true;
     if (input.stream) {
       body.stream = true;
@@ -121,8 +123,19 @@ export class OpenAICompatibleProvider extends BaseProvider {
           const text = chunk?.choices?.[0]?.delta?.content ?? '';
           const finishReason = chunk?.choices?.[0]?.finish_reason;
           const usage = chunk?.usage;
+          const toolCalls = chunk?.choices?.[0]?.delta?.tool_calls;
           
-          if (text) {
+          if (toolCalls && toolCalls.length > 0) {
+            yield { 
+               type: 'tool_calls', 
+               toolCalls: toolCalls.map((tc: any) => ({ 
+                 index: tc.index, 
+                 id: tc.id, 
+                 name: tc.function?.name, 
+                 arguments: tc.function?.arguments 
+               })) 
+            };
+          } else if (text) {
             yield { type: 'delta', text, finishReason };
           } else if (finishReason) {
             yield { type: 'delta', text: '', finishReason };

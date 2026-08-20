@@ -99,6 +99,26 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
                 }]
               };
               reply.raw.write(`data: ${JSON.stringify(chunkPayload)}\n\n`);
+            } else if (chunk.type === 'tool_calls') {
+              const chunkPayload = {
+                id: completionId,
+                object: 'chat.completion.chunk',
+                created: timestamp,
+                model: streamResponse.model,
+                choices: [{ 
+                  index: 0, 
+                  delta: { 
+                    tool_calls: chunk.toolCalls.map((tc: any) => ({
+                      index: tc.index,
+                      id: tc.id,
+                      type: tc.id ? 'function' : undefined,
+                      function: { name: tc.name, arguments: tc.arguments }
+                    }))
+                  },
+                  finish_reason: null
+                }]
+              };
+              reply.raw.write(`data: ${JSON.stringify(chunkPayload)}\n\n`);
             } else if (chunk.type === 'usage') {
               // OpenAI padrao manda uso num chunk final ou em options=stream_options
               reply.raw.write(`data: ${JSON.stringify({ 
