@@ -33,6 +33,7 @@ export interface ChatMessage {
   content: string;
   /** Base64 (sem prefixo data:) ou URLs de imagens para mensagens multimodais */
   images?: string[];
+  toolCalls?: Array<{ id?: string; name: string; arguments: unknown }>;
 }
 
 export interface GenerateTextInput {

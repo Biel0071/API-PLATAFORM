@@ -15,6 +15,7 @@ import { ExecutionDispatcher } from './dispatcher.service';
 import { ProviderRegistry, compressContext, getModelTraits } from '@api-platform/shared';
 import { registry, providerCircuit, fallbackOrder } from './ai.service';
 import { enqueueAndWait } from './queue.service';
+import { apiLayerTools, APILayerRegistry } from './apilayer.registry';
 import crypto from 'crypto';
 
 export interface Executor {
@@ -236,6 +237,9 @@ export class ExecutionGateway {
     const model = payload.model || 'auto';
     const stream = payload.stream === true || forceStream;
     
+    // Injetar ferramentas da APILayer
+    payload.tools = [...(payload.tools || []), ...apiLayerTools];
+    
     const tracer = new MemoryExecutionTracer();
     const ctx: ExecutionContext = {
       executionId,
@@ -304,6 +308,39 @@ export class ExecutionGateway {
     const executor = ExecutorFactory.getExecutor(ctx.decision.transport);
     const rawResponse = await executor.execute(ctx, payload);
     tracer.event('finish', 'executor');
+    
+    // Intercept Tool Calls from APILayer
+    if (!stream && rawResponse && !('stream' in rawResponse) && rawResponse.result?.toolCalls && rawResponse.result.toolCalls.length > 0) {
+      const toolCalls = rawResponse.result.toolCalls;
+      const apiLayerToolCalls = toolCalls.filter((tc: any) => apiLayerTools.find(t => t.function.name === tc.name));
+      
+      if (apiLayerToolCalls.length > 0) {
+        console.log('[GATEWAY] Interceptando chamada de ferramenta da APILayer:', apiLayerToolCalls.map((t: any) => t.name));
+        
+        const newMessages = [...payload.messages];
+        // Append assistant's tool calls
+        newMessages.push({ 
+          role: 'assistant', 
+          content: rawResponse.result.message?.content || null, 
+          tool_calls: toolCalls 
+        });
+        
+        for (const tc of apiLayerToolCalls) {
+          const args = typeof tc.arguments === 'string' ? JSON.parse(tc.arguments) : tc.arguments;
+          const result = await APILayerRegistry.executeTool(tc.name, args);
+          newMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+        }
+        
+        // Execute again with tool results
+        const followupPayload = { ...payload, messages: newMessages };
+        const followupResponse = await executor.execute(ctx, followupPayload);
+        
+        tracer.startComposer();
+        const response = ResponseComposer.compose(ctx, followupResponse);
+        tracer.finishComposer();
+        return { ctx, response };
+      }
+    }
     
     // 5. Compose
     tracer.startComposer();

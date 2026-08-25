@@ -34,6 +34,9 @@ export function anthropicContentToText(content: unknown): string {
 
 export function normalizeAnthropicMessages(messages: unknown[], system?: unknown): Array<any> {
   const normalized: any[] = [];
+
+  const systemText = anthropicContentToText(system);
+  if (systemText) normalized.push({ role: 'system', content: systemText });
   
   if (Array.isArray(messages)) {
     for (const raw of messages) {
@@ -93,7 +96,6 @@ export function normalizeAnthropicMessages(messages: unknown[], system?: unknown
     }
   }
 
-  // System text is handled separately by the gateway.
   return normalized;
 }
 
@@ -111,4 +113,3 @@ export function normalizeAnthropicTools(tools: unknown): Array<Record<string, un
         },
       });
 }
-
