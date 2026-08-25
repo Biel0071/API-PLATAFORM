@@ -80,11 +80,11 @@ export async function keysRoutes(secured: FastifyInstance): Promise<void> {
     const keys = await prisma.apiKey.findMany({ where: { id: { in: ids } }, select: { id: true, keyHash: true } });
     
     await prisma.apiKey.updateMany({
-      where: { id: { in: keys.map(k => k.id) } },
+      where: { id: { in: keys.map((k: any) => k.id) } },
       data: { active: false }
     });
     
-    const redisKeys = keys.flatMap(k => [`apiplatform:apikey:v2:${k.keyHash}`, `apiplatform:apikey:${k.keyHash}`]);
+    const redisKeys = keys.flatMap((k: any) => [`apiplatform:apikey:v2:${k.keyHash}`, `apiplatform:apikey:${k.keyHash}`]);
     if (redisKeys.length > 0) {
       await redis.del(...redisKeys);
     }
