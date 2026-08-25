@@ -9,6 +9,7 @@ import {
   ModelInfo,
   ProviderError,
   ProviderResult,
+  ProviderStream,
   TokenUsage,
   VisionInput,
 } from '../types';
@@ -143,6 +144,15 @@ export class OllamaProvider extends BaseProvider {
       content: m.content,
       images: m.images?.map((img) => parseImageInput(img).data),
     }));
+
+    if (input.stream) {
+      return {
+        stream: true,
+        model,
+        chunks: this.streamChat(model, messages, input),
+      } as ProviderStream as any;
+    }
+
     const release = await this.semaphore.acquire();
     const releaseGpu = await textGpuSemaphore.acquire();
     let data: any;
@@ -178,6 +188,111 @@ export class OllamaProvider extends BaseProvider {
       tokens: this.mapUsage(data),
       raw: data,
     };
+  }
+
+  private async *streamChat(
+    model: string,
+    messages: Array<{ role: string; content: string; images?: string[] }>,
+    input: ChatInput,
+  ): AsyncIterable<import('../types').ProviderChunk> {
+    const release = await this.semaphore.acquire();
+    const releaseGpu = await textGpuSemaphore.acquire();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs ?? 90_000);
+
+    try {
+      const response = await fetch(this.url('/api/chat'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: true,
+          tools: input.tools,
+          keep_alive: -1,
+          options: { temperature: input.temperature, num_predict: input.maxTokens },
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new ProviderError(
+          this.name,
+          `HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`,
+          'UPSTREAM_HTTP_ERROR',
+          response.status >= 500 ? 502 : response.status,
+        );
+      }
+
+      if (!response.body) {
+        throw new ProviderError(this.name, 'No response body for stream', 'UPSTREAM_HTTP_ERROR', 502);
+      }
+
+      const reader = (response.body as unknown as ReadableStream<Uint8Array>).getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const data = JSON.parse(trimmed);
+          const text = data?.message?.content;
+          if (typeof text === 'string' && text) {
+            yield { type: 'delta', text };
+          }
+          if (Array.isArray(data?.message?.tool_calls)) {
+            yield {
+              type: 'tool_calls',
+              toolCalls: data.message.tool_calls.map((call: any, index: number) => ({
+                index,
+                id: call?.id,
+                name: call?.function?.name,
+                arguments: typeof call?.function?.arguments === 'string'
+                  ? call.function.arguments
+                  : JSON.stringify(call?.function?.arguments ?? {}),
+              })),
+            };
+          }
+          if (data?.done) {
+            const tokens = this.mapUsage(data);
+            if (tokens) {
+              yield {
+                type: 'usage',
+                promptTokens: tokens.prompt ?? 0,
+                completionTokens: tokens.completion ?? 0,
+                totalTokens: tokens.total ?? 0,
+              };
+            }
+            yield { type: 'done' };
+            return;
+          }
+        }
+      }
+
+      const tail = buffer.trim();
+      if (tail) {
+        const data = JSON.parse(tail);
+        const text = data?.message?.content;
+        if (typeof text === 'string' && text) yield { type: 'delta', text };
+      }
+    } catch (err) {
+      if (err instanceof ProviderError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ProviderError(this.name, msg, 'UPSTREAM_UNREACHABLE', 502);
+    } finally {
+      clearTimeout(timeout);
+      releaseGpu();
+      release();
+    }
   }
 
   override async vision(input: VisionInput): Promise<ProviderResult<{ text: string }>> {

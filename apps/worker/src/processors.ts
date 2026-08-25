@@ -129,19 +129,85 @@ async function runWithFallback<T>(
   throw lastError ?? new Error(`No provider available for ${capability}`);
 }
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { VideoProcessorService } from '../../../api/src/services/video-processor.service';
+
+async function processVideoInMessages(messages: any[]): Promise<any[]> {
+  const newMessages = [];
+  for (const msg of messages) {
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
+      const newContent: any[] = [];
+      for (const item of msg.content) {
+        if (item.type === 'image_url' && item.image_url?.url?.startsWith('data:video/')) {
+          try {
+            const urlData = item.image_url.url;
+            const matches = urlData.match(/^data:(video\/[a-zA-Z0-9]+);base64,(.+)$/);
+            if (matches && matches.length === 3) {
+              const base64Data = matches[2];
+              const ext = matches[1].split('/')[1] === 'mp4' ? '.mp4' : '.webm';
+              const tempFilePath = path.join(os.tmpdir(), `worker-upload-${randomUUID()}${ext}`);
+              fs.writeFileSync(tempFilePath, Buffer.from(base64Data, 'base64'));
+              
+              // Limits and security
+              const maxFrames = Number(process.env.MAX_VIDEO_FRAMES) || 10;
+              const frames = await VideoProcessorService.extractFramesAdvanced(tempFilePath, maxFrames);
+              
+              for (const frame of frames) {
+                newContent.push({ type: 'image_url', image_url: { url: frame } });
+              }
+              
+              try { fs.unlinkSync(tempFilePath); } catch (e) {}
+            } else {
+               newContent.push(item);
+            }
+          } catch (err) {
+            console.error('[WORKER_VIDEO_PROCESSOR] Erro ao processar video:', err);
+            newContent.push(item);
+          }
+        } else {
+          newContent.push(item);
+        }
+      }
+      newMessages.push({ ...msg, content: newContent });
+    } else {
+      newMessages.push(msg);
+    }
+  }
+  return newMessages;
+}
+
 // ---------- Worker Texto ----------
 export const textProcessor: ProcessorFn = async (job, registry) => {
-  const data = job.data as { prompt: string; system?: string; provider?: string; model?: string; task?: TaskHint };
+  const data = job.data as any;
   if (data.task === 'vision') {
     throw new Error('validation: task vision requires images and queue type "vision"');
   }
+  
+  if (data.messages) {
+    data.messages = await processVideoInMessages(data.messages);
+    return runWithFallback(registry, 'chat', data.provider, (provider, routedModel) =>
+      provider.chat({ ...data, model: data.model ?? routedModel }), data.task ?? 'general',
+    );
+  }
+
   return runWithFallback(registry, 'chat', data.provider, (provider, routedModel) =>
     provider.generateText({ ...data, model: data.model ?? routedModel }), data.task ?? 'general',
   );
 };
 
+// ---------- Worker Vision ----------
 export const visionProcessor: ProcessorFn = async (job, registry) => {
-  const data = job.data as { prompt: string; images: string[]; provider?: string; model?: string; maxTokens?: number };
+  const data = job.data as any;
+  
+  if (data.messages) {
+    data.messages = await processVideoInMessages(data.messages);
+    return runWithFallback(registry, 'vision', data.provider, (provider, routedModel) =>
+      provider.vision({ ...data, model: data.model ?? routedModel }), 'vision',
+    );
+  }
+
   if (!Array.isArray(data.images) || data.images.length === 0) {
     throw new Error('validation: vision job requires at least one image');
   }

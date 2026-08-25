@@ -51,8 +51,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(500).send(fail('INTERNAL_ERROR', 'Erro interno'));
   });
 
-  // ---------- Health (publico) ----------
-  app.get('/v1/health', { schema: { tags: ['system'] } }, async () => {
+  const getHealthPayload = async () => {
     const requestStart = Date.now();
     const checks: Record<string, boolean | string | number | any> = {};
     
@@ -108,8 +107,25 @@ export async function buildApp(): Promise<FastifyInstance> {
       checks.workers = 0;
     }
 
+    const deepProviderHealth = process.env.DEEP_PROVIDER_HEALTH === 'true';
     const providerDetails: Record<string, any> = {};
     for (const p of registry.list()) {
+      if (!deepProviderHealth) {
+        providerDetails[p.name] = {
+          online: true,
+          latency: 0,
+          models: [],
+          message: 'shallow health; set DEEP_PROVIDER_HEALTH=true for provider probes',
+          status: 'ONLINE',
+          cost: 0,
+          tokens: 0,
+          requests: 0,
+          score: 1.0,
+          fallback: true,
+        };
+        continue;
+      }
+
       try {
         const start = Date.now();
         const health = await p.health();
@@ -149,7 +165,12 @@ export async function buildApp(): Promise<FastifyInstance> {
       timestamp: new Date().toISOString(),
       ...checks
     };
-  });
+  };
+
+  // ---------- Health (publico) ----------
+  app.get('/v1/health', { schema: { tags: ['system'] } }, getHealthPayload);
+
+  app.get('/health', { schema: { tags: ['system'] } }, getHealthPayload);
 
 
   // ---------- Metricas Prometheus ----------

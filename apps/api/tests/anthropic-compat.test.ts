@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anthropicContentToText, normalizeAnthropicMessages, normalizeAnthropicTools } from '../src/routes/v1/anthropic-compat.mapper';
+import { anthropicContentToText, normalizeAnthropicMessages, normalizeAnthropicToolChoice, normalizeAnthropicTools } from '../src/routes/v1/anthropic-compat.mapper';
 
 describe('Anthropic compatibility mapper', () => {
   it('normalizes text and tool result content blocks', () => {
@@ -24,5 +24,14 @@ describe('Anthropic compatibility mapper', () => {
   it('maps Anthropic tools to function tools', () => {
     const tools = normalizeAnthropicTools([{ name: 'read_file', description: 'Read', input_schema: { type: 'object' } }]);
     expect(tools?.[0]).toMatchObject({ type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } });
+  });
+
+  it('maps Anthropic tool_choice to function tool_choice', () => {
+    expect(normalizeAnthropicToolChoice({ type: 'tool', name: 'read_file' })).toEqual({
+      type: 'function',
+      function: { name: 'read_file' },
+    });
+    expect(normalizeAnthropicToolChoice({ type: 'any' })).toBe('auto');
+    expect(normalizeAnthropicToolChoice({ type: 'none' })).toBe('none');
   });
 });

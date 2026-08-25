@@ -113,3 +113,18 @@ export function normalizeAnthropicTools(tools: unknown): Array<Record<string, un
         },
       });
 }
+
+export function normalizeAnthropicToolChoice(toolChoice: unknown): unknown {
+  if (!toolChoice || typeof toolChoice !== 'object') return toolChoice;
+  const choice = toolChoice as Record<string, any>;
+
+  if (choice.type === 'auto' || choice.type === 'any' || choice.type === 'none') {
+    return choice.type === 'any' ? 'auto' : choice.type;
+  }
+
+  if (choice.type === 'tool' && choice.name) {
+    return { type: 'function', function: { name: String(choice.name) } };
+  }
+
+  return toolChoice;
+}

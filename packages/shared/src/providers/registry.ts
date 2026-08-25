@@ -36,6 +36,8 @@ const fallbackMetrics: Record<string, ProviderMetrics> = {
   'anthropic': { priority: 2, health: 0.95, latency: 500, contextWindow: 200000, cost: 3, throughput: 80 },
   'openai': { priority: 2, health: 0.95, latency: 450, contextWindow: 128000, cost: 2, throughput: 90 },
   'groq': { priority: 2, health: 0.95, latency: 100, contextWindow: 32768, cost: 0.5, throughput: 800 },
+  'grok': { priority: 2, health: 0.95, latency: 100, contextWindow: 32768, cost: 0.5, throughput: 800 },
+  'xai': { priority: 2, health: 0.95, latency: 300, contextWindow: 131072, cost: 5, throughput: 100 },
   'cloudflare': { priority: 2, health: 0.95, latency: 150, contextWindow: 8192, cost: 0.1, throughput: 300 },
   // Priority 3: Fallback Third
   'openrouter': { priority: 3, health: 0.90, latency: 800, contextWindow: 128000, cost: 1.5, throughput: 40 },
@@ -336,6 +338,18 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
         apiKey: env.GROQ_API_KEY,
         defaultModel: env.GROQ_DEFAULT_MODEL ?? 'llama-3.1-8b-instant',
         capabilities: ['chat'],
+      }),
+    );
+  }
+
+  if (env.GROK_API_KEY) {
+    registry.register(
+      new OpenAICompatibleProvider({
+        name: 'xai',
+        baseUrl: env.GROK_BASE_URL ?? 'https://api.x.ai/v1',
+        apiKey: env.GROK_API_KEY,
+        defaultModel: env.GROK_DEFAULT_MODEL ?? 'grok-beta',
+        capabilities: ['chat', 'vision'],
       }),
     );
   }

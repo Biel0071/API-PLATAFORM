@@ -1,8 +1,21 @@
-import axios from 'axios';
+const APILAYER_ACCESS_KEY = process.env.APILAYER_ACCESS_KEY;
 
-const APILAYER_ACCESS_KEY = '873c973d4de2a83d10c95ba25855d895';
+async function getJson(url: string, params: Record<string, string | undefined>): Promise<unknown> {
+  const requestUrl = new URL(url);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) requestUrl.searchParams.set(key, value);
+  }
 
-export const apiLayerTools = [
+  const response = await fetch(requestUrl);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof data === 'object' && data && 'error' in data ? JSON.stringify(data) : response.statusText;
+    throw new Error(message);
+  }
+  return data;
+}
+
+const configuredApiLayerTools = [
   {
     type: 'function',
     function: {
@@ -43,34 +56,36 @@ export const apiLayerTools = [
   }
 ];
 
+export const apiLayerTools = APILAYER_ACCESS_KEY ? configuredApiLayerTools : [];
+
 export class APILayerRegistry {
   static async executeTool(name: string, args: any): Promise<any> {
     try {
+      if (!APILAYER_ACCESS_KEY) {
+        return JSON.stringify({ error: 'APILAYER_ACCESS_KEY is not configured' });
+      }
+
       if (name === 'get_current_weather') {
-        const response = await axios.get(`http://api.weatherstack.com/current`, {
-          params: {
-            access_key: APILAYER_ACCESS_KEY,
-            query: args.location
-          }
+        const data = await getJson('http://api.weatherstack.com/current', {
+          access_key: APILAYER_ACCESS_KEY,
+          query: args.location,
         });
-        return JSON.stringify(response.data);
+        return JSON.stringify(data);
       }
       
       if (name === 'get_exchange_rate') {
-        const response = await axios.get(`http://api.exchangeratesapi.io/v1/latest`, {
-          params: {
-            access_key: APILAYER_ACCESS_KEY,
-            base: args.base,
-            symbols: args.symbols
-          }
+        const data = await getJson('http://api.exchangeratesapi.io/v1/latest', {
+          access_key: APILAYER_ACCESS_KEY,
+          base: args.base,
+          symbols: args.symbols,
         });
-        return JSON.stringify(response.data);
+        return JSON.stringify(data);
       }
       
       return JSON.stringify({ error: 'Tool not found in APILayer Registry' });
     } catch (error: any) {
-      console.error('[APILAYER] Erro na tool', name, error?.response?.data || error.message);
-      return JSON.stringify({ error: 'Failed to fetch from APILayer', details: error?.response?.data || error.message });
+      console.error('[APILAYER] Erro na tool', name, error.message);
+      return JSON.stringify({ error: 'Failed to fetch from APILayer', details: error.message });
     }
   }
 }

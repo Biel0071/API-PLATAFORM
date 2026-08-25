@@ -8,6 +8,7 @@ RUN npm install
 
 # Now copy the rest and build
 COPY . .
+RUN apk add --no-cache ffmpeg
 RUN npm run build
 
 ENV NODE_ENV=production
