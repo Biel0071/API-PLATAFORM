@@ -131,7 +131,6 @@ async function runWithFallback<T>(
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import ffmpeg from 'fluent-ffmpeg';
 
