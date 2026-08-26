@@ -14,7 +14,7 @@ COPY apps/worker/package.json apps/worker/
 RUN npm install --workspaces --include-workspace-root
 
 COPY packages ./packages
-COPY apps/api/prisma ./apps/api/prisma
+COPY apps/api ./apps/api
 COPY apps/worker ./apps/worker
 
 RUN npm run build -w packages/shared \
