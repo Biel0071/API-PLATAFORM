@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger } from '../plugins/logger';
+import { logger } from '../lib/logger';
 
 export interface VideoProcessingResult {
   frames: string[]; // Base64 data uris (e.g., data:image/jpeg;base64,...)
