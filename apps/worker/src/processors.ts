@@ -131,8 +131,55 @@ async function runWithFallback<T>(
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { VideoProcessorService } from '../../api/src/services/video-processor.service';
+import ffmpeg from 'fluent-ffmpeg';
+
+async function extractFramesAdvanced(videoPath: string, maxFrames: number = 20): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) {
+        console.error('[WORKER] Erro ao sondar video com ffprobe:', err);
+        return reject(err);
+      }
+
+      const duration = metadata.format.duration || 10;
+      let dynamicFps = maxFrames / duration;
+      if (dynamicFps > 1) dynamicFps = 1;
+
+      const outDir = path.join(os.tmpdir(), `video-frames-${randomUUID()}`);
+      fs.mkdirSync(outDir, { recursive: true });
+
+      ffmpeg(videoPath)
+        .outputOptions([
+          '-vf', `fps=${dynamicFps.toFixed(3)},scale=512:-1`,
+          '-q:v', '5'
+        ])
+        .output(`${outDir}/frame-%04d.jpg`)
+        .on('end', () => {
+          try {
+            const files = fs.readdirSync(outDir).sort();
+            const framesBase64: string[] = [];
+            for (let i = 0; i < Math.min(files.length, maxFrames); i++) {
+              const filePath = path.join(outDir, files[i]);
+              const data = fs.readFileSync(filePath);
+              framesBase64.push(`data:image/jpeg;base64,${data.toString('base64')}`);
+            }
+            fs.rmSync(outDir, { recursive: true, force: true });
+            resolve(framesBase64);
+          } catch (error) {
+            reject(error);
+          }
+        })
+        .on('error', (err) => {
+          console.error('[WORKER] Erro ao extrair frames avan\u00E7ados:', err);
+          fs.rmSync(outDir, { recursive: true, force: true });
+          reject(err);
+        })
+        .run();
+    });
+  });
+}
 
 /**
  * Função utilitária para salvar Base64 em disco via Stream (em chunks).
@@ -190,7 +237,7 @@ async function processVideoInMessages(messages: any[]): Promise<any[]> {
               
               // 2. Extrai frames (limitados pelo MAX_VIDEO_FRAMES)
               const maxFrames = Number(process.env.MAX_VIDEO_FRAMES) || 10;
-              const frames = await VideoProcessorService.extractFramesAdvanced(tempFilePath, maxFrames);
+              const frames = await extractFramesAdvanced(tempFilePath, maxFrames);
               
               for (const frame of frames) {
                 newContent.push({ type: 'image_url', image_url: { url: frame } });
