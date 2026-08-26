@@ -134,6 +134,41 @@ import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { VideoProcessorService } from '../../../api/src/services/video-processor.service';
 
+/**
+ * Função utilitária para salvar Base64 em disco via Stream (em chunks).
+ * Impede que Buffer.from() aloque todo o vídeo de uma vez na RAM.
+ */
+async function streamBase64ToFile(base64Data: string, filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const writeStream = fs.createWriteStream(filePath);
+    writeStream.on('error', reject);
+    writeStream.on('finish', resolve);
+    
+    // Processamos em chunks de 64KB (ou maior, como 256KB)
+    const CHUNK_SIZE = 64 * 1024;
+    let offset = 0;
+    
+    function writeNextChunk() {
+      let canWrite = true;
+      while (offset < base64Data.length && canWrite) {
+        const end = Math.min(offset + CHUNK_SIZE, base64Data.length);
+        const chunk = base64Data.substring(offset, end);
+        const bufferChunk = Buffer.from(chunk, 'base64');
+        canWrite = writeStream.write(bufferChunk);
+        offset = end;
+      }
+      
+      if (offset < base64Data.length) {
+        writeStream.once('drain', writeNextChunk);
+      } else {
+        writeStream.end();
+      }
+    }
+    
+    writeNextChunk();
+  });
+}
+
 async function processVideoInMessages(messages: any[]): Promise<any[]> {
   const newMessages = [];
   for (const msg of messages) {
@@ -141,30 +176,40 @@ async function processVideoInMessages(messages: any[]): Promise<any[]> {
       const newContent: any[] = [];
       for (const item of msg.content) {
         if (item.type === 'image_url' && item.image_url?.url?.startsWith('data:video/')) {
-          try {
-            const urlData = item.image_url.url;
-            const matches = urlData.match(/^data:(video\/[a-zA-Z0-9]+);base64,(.+)$/);
-            if (matches && matches.length === 3) {
-              const base64Data = matches[2];
-              const ext = matches[1].split('/')[1] === 'mp4' ? '.mp4' : '.webm';
-              const tempFilePath = path.join(os.tmpdir(), `worker-upload-${randomUUID()}${ext}`);
-              fs.writeFileSync(tempFilePath, Buffer.from(base64Data, 'base64'));
+          const urlData = item.image_url.url;
+          const matches = urlData.match(/^data:(video\/[a-zA-Z0-9]+);base64,(.+)$/);
+          
+          if (matches && matches.length === 3) {
+            const base64Data = matches[2];
+            const ext = matches[1].split('/')[1] === 'mp4' ? '.mp4' : '.webm';
+            const tempFilePath = path.join(os.tmpdir(), `worker-upload-${randomUUID()}${ext}`);
+            
+            try {
+              // 1. Grava o base64 para o disco em formato de stream (Evita OOM)
+              await streamBase64ToFile(base64Data, tempFilePath);
               
-              // Limits and security
+              // 2. Extrai frames (limitados pelo MAX_VIDEO_FRAMES)
               const maxFrames = Number(process.env.MAX_VIDEO_FRAMES) || 10;
               const frames = await VideoProcessorService.extractFramesAdvanced(tempFilePath, maxFrames);
               
               for (const frame of frames) {
                 newContent.push({ type: 'image_url', image_url: { url: frame } });
               }
-              
-              try { fs.unlinkSync(tempFilePath); } catch (e) {}
-            } else {
-               newContent.push(item);
+            } catch (err) {
+              console.error('[WORKER_VIDEO_PROCESSOR] Erro ao processar video:', err);
+              newContent.push(item);
+            } finally {
+              // 3. CLEANUP BLINDADO (Garantia de que o arquivo temp será deletado sempre)
+              try {
+                if (fs.existsSync(tempFilePath)) {
+                  fs.unlinkSync(tempFilePath);
+                }
+              } catch (cleanupErr) {
+                console.error('[WORKER_VIDEO_PROCESSOR] Erro no cleanup do tempFilePath:', cleanupErr);
+              }
             }
-          } catch (err) {
-            console.error('[WORKER_VIDEO_PROCESSOR] Erro ao processar video:', err);
-            newContent.push(item);
+          } else {
+             newContent.push(item);
           }
         } else {
           newContent.push(item);

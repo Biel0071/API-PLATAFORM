@@ -32,6 +32,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerAuth(app);
   await registerSwagger(app, env.DOCS_ENABLED);
 
+  // ---------- Proteção Antecipada de Payload ----------
+  app.addHook('preHandler', async (req, reply) => {
+    const contentLength = req.headers['content-length'];
+    if (contentLength) {
+      const maxVideoSize = Number(process.env.MAX_VIDEO_SIZE) || 50 * 1024 * 1024; // Padrão de 50MB
+      if (Number(contentLength) > maxVideoSize) {
+        return reply.code(413).send(fail('PAYLOAD_TOO_LARGE', `Payload excede o limite estrito permitido de ${maxVideoSize} bytes.`));
+      }
+    }
+  });
+
   // ---------- Tratamento de erros padrao ----------
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError) {

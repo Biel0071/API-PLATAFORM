@@ -63,52 +63,59 @@ export class VideoProcessorService {
   // Para FFmpeg screenshots options, usar 'fps=1' no outputOptions é melhor.
   static async extractFramesAdvanced(videoPath: string, maxFrames: number = 20): Promise<string[]> {
     return new Promise((resolve, reject) => {
-      const outDir = path.join(os.tmpdir(), `video-frames-${randomUUID()}`);
-      fs.mkdirSync(outDir, { recursive: true });
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err) {
+          logger.error({ err }, 'Erro ao sondar vídeo com ffprobe');
+          return reject(err);
+        }
 
-      logger.info({ videoPath, outDir }, 'Iniciando extração avançada de frames');
+        const duration = metadata.format.duration || 10; // Fallback para 10s se não detectar
+        
+        // Exemplo: se o vídeo tem 60 segundos e queremos max 20 frames,
+        // precisamos de 20/60 = 0.33 frames por segundo (1 frame a cada 3 segundos).
+        let dynamicFps = maxFrames / duration;
+        
+        // Se o cálculo der mais de 1 FPS (vídeos curtos), capeamos em 1 FPS
+        // para não extrair milhares de frames em vídeos pequenos.
+        if (dynamicFps > 1) dynamicFps = 1;
 
-      // Extrai a 1 frame por segundo
-      ffmpeg(videoPath)
-        .outputOptions([
-          '-vf', 'fps=1,scale=512:-1',
-          '-q:v', '5'
-        ])
-        .output(`${outDir}/frame-%04d.jpg`)
-        .on('end', () => {
-          try {
-            const files = fs.readdirSync(outDir).sort();
-            
-            // Se tivermos mais frames que o máximo, amostramos uniformemente
-            let selectedFiles = files;
-            if (files.length > maxFrames) {
-              const step = files.length / maxFrames;
-              selectedFiles = [];
-              for (let i = 0; i < maxFrames; i++) {
-                selectedFiles.push(files[Math.floor(i * step)]);
+        const outDir = path.join(os.tmpdir(), `video-frames-${randomUUID()}`);
+        fs.mkdirSync(outDir, { recursive: true });
+
+        logger.info({ videoPath, outDir, duration, dynamicFps, maxFrames }, 'Iniciando extração avançada de frames com taxa dinâmica');
+
+        ffmpeg(videoPath)
+          .outputOptions([
+            // Usamos a taxa dinâmica calculada baseada na duração e limite
+            '-vf', `fps=${dynamicFps.toFixed(3)},scale=512:-1`,
+            '-q:v', '5'
+          ])
+          .output(`${outDir}/frame-%04d.jpg`)
+          .on('end', () => {
+            try {
+              const files = fs.readdirSync(outDir).sort();
+              
+              const framesBase64: string[] = [];
+              for (let i = 0; i < Math.min(files.length, maxFrames); i++) {
+                const filePath = path.join(outDir, files[i]);
+                const data = fs.readFileSync(filePath);
+                const base64 = data.toString('base64');
+                framesBase64.push(`data:image/jpeg;base64,${base64}`);
               }
+              
+              fs.rmSync(outDir, { recursive: true, force: true });
+              resolve(framesBase64);
+            } catch (error) {
+              reject(error);
             }
-            
-            const framesBase64: string[] = [];
-            for (const file of selectedFiles) {
-              const filePath = path.join(outDir, file);
-              const data = fs.readFileSync(filePath);
-              const base64 = data.toString('base64');
-              framesBase64.push(`data:image/jpeg;base64,${base64}`);
-            }
-            
+          })
+          .on('error', (err) => {
+            logger.error({ err }, 'Erro ao extrair frames avançados');
             fs.rmSync(outDir, { recursive: true, force: true });
-            resolve(framesBase64);
-          } catch (error) {
-            reject(error);
-          }
-        })
-        .on('error', (err) => {
-          logger.error({ err }, 'Erro ao extrair frames avançados');
-          fs.rmSync(outDir, { recursive: true, force: true });
-          reject(err);
-        })
-        .run();
+            reject(err);
+          })
+          .run();
+      });
     });
   }
 
