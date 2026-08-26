@@ -132,7 +132,7 @@ async function runWithFallback<T>(
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { VideoProcessorService } from '../../../api/src/services/video-processor.service';
+import { VideoProcessorService } from '../../api/src/services/video-processor.service';
 
 /**
  * Função utilitária para salvar Base64 em disco via Stream (em chunks).
