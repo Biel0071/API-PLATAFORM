@@ -22,3 +22,4 @@ export * from './execution-memory';
 export * from './network-safety';
 export * from './execution-tracer';
 export * from './token-estimator';
+export * from './providers/router';

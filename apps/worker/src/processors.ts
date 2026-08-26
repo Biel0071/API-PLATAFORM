@@ -215,13 +215,33 @@ async function streamBase64ToFile(base64Data: string, filePath: string): Promise
   });
 }
 
-async function processVideoInMessages(messages: any[]): Promise<any[]> {
+async function processVideoInMessages(messages: any[], externalFilePath?: string): Promise<any[]> {
   const newMessages = [];
   for (const msg of messages) {
     if (msg.role === 'user' && Array.isArray(msg.content)) {
       const newContent: any[] = [];
       for (const item of msg.content) {
-        if (item.type === 'image_url' && item.image_url?.url?.startsWith('data:video/')) {
+        if (item.type === 'video_path' && externalFilePath) {
+           // Nova abordagem: o arquivo já foi salvo no disco pelo streaming do gateway
+           try {
+              const maxFrames = Number(process.env.MAX_VIDEO_FRAMES) || 10;
+              const frames = await extractFramesAdvanced(externalFilePath, maxFrames);
+              
+              for (const frame of frames) {
+                newContent.push({ type: 'image_url', image_url: { url: frame } });
+              }
+           } catch (err) {
+              console.error('[WORKER_VIDEO_PROCESSOR] Erro ao processar video (streaming):', err);
+           } finally {
+              try {
+                if (fs.existsSync(externalFilePath)) {
+                  fs.unlinkSync(externalFilePath);
+                }
+              } catch (cleanupErr) {
+                console.error('[WORKER_VIDEO_PROCESSOR] Erro no cleanup do externalFilePath:', cleanupErr);
+              }
+           }
+        } else if (item.type === 'image_url' && item.image_url?.url?.startsWith('data:video/')) {
           const urlData = item.image_url.url;
           const matches = urlData.match(/^data:(video\/[a-zA-Z0-9]+);base64,(.+)$/);
           
@@ -277,7 +297,7 @@ export const textProcessor: ProcessorFn = async (job, registry) => {
   }
   
   if (data.messages) {
-    data.messages = await processVideoInMessages(data.messages);
+    data.messages = await processVideoInMessages(data.messages, data.filePath);
     return runWithFallback(registry, 'chat', data.provider, (provider, routedModel) =>
       provider.chat({ ...data, model: data.model ?? routedModel }), data.task ?? 'general',
     );
@@ -293,10 +313,20 @@ export const visionProcessor: ProcessorFn = async (job, registry) => {
   const data = job.data as any;
   
   if (data.messages) {
-    data.messages = await processVideoInMessages(data.messages);
+    data.messages = await processVideoInMessages(data.messages, data.filePath);
     return runWithFallback(registry, 'vision', data.provider, (provider, routedModel) =>
       provider.vision({ ...data, model: data.model ?? routedModel }), 'vision',
     );
+  }
+
+  if (!data.images && data.filePath) {
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const fileData = await readFile(data.filePath);
+      data.images = [fileData.toString('base64')];
+    } catch (e) {
+      console.error('[WORKER] Erro ao ler imagem do disco:', e);
+    }
   }
 
   if (!Array.isArray(data.images) || data.images.length === 0) {
@@ -396,9 +426,13 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
   if (data.__kind === 'video-to-image') {
     const dir = await mkdtemp(path.join(tmpdir(), 'apiplatform-video-'));
     try {
-      const videoFile = path.join(dir, 'input.mp4');
-      const raw = String(data.video).replace(/^data:video\/[a-z0-9+.-]+;base64,/i, '');
-      await writeFile(videoFile, Buffer.from(raw, 'base64'));
+      let videoFile = data.filePath;
+      if (!videoFile) {
+        videoFile = path.join(dir, 'input.mp4');
+        const raw = String(data.video).replace(/^data:video\/[a-z0-9+.-]+;base64,/i, '');
+        await writeFile(videoFile, Buffer.from(raw, 'base64'));
+      }
+      
       await execFileAsync('ffmpeg', ['-i', videoFile, '-vf', 'select=gt(scene\\,0.18)', '-vsync', 'vfr', '-frames:v', String(data.frameCount ?? 4), path.join(dir, 'frame_%03d.png')], { timeout: 180_000 });
       let files = (await readdir(dir)).filter((name) => name.startsWith('frame_')).sort();
       if (!files.length) {
@@ -410,7 +444,16 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
       return runWithFallback(registry, 'image', data.provider, (provider) =>
         (provider as unknown as ImageProvider).videoToImage(frames, data as any),
       );
-    } finally { await rm(dir, { recursive: true, force: true }); }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      if (data.filePath) {
+        try {
+          if (fs.existsSync(data.filePath)) fs.unlinkSync(data.filePath);
+        } catch (e) {
+          console.error('[WORKER] Erro ao limpar data.filePath:', e);
+        }
+      }
+    }
   }
   if (data.__kind === 'upscale') {
     return runWithFallback(registry, 'image', data.provider, (provider) =>
@@ -430,8 +473,20 @@ export const embeddingProcessor: ProcessorFn = async (job, registry) => {
 
 // ---------- Worker OCR ----------
 export const ocrProcessor: ProcessorFn = async (job, registry) => {
-  const data = job.data as { image: string; language?: string; provider?: string; model?: string };
+  const data = job.data as { image?: string; filePath?: string; language?: string; provider?: string; model?: string };
   const engine = process.env.OCR_ENGINE ?? 'vision';
+
+  if (!data.image && data.filePath) {
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const fileData = await readFile(data.filePath);
+      data.image = fileData.toString('base64');
+    } catch (e) {
+      console.error('[WORKER] Erro ao ler OCR do disco:', e);
+    }
+  }
+
+  if (!data.image) throw new Error('OCR requires an image');
 
   if (engine === 'tesseract') {
     const parsed = parseImageInput(data.image);
@@ -460,7 +515,7 @@ export const ocrProcessor: ProcessorFn = async (job, registry) => {
     'preservando quebras de linha. Nao adicione comentarios.' +
     (data.language ? ` Idioma esperado: ${data.language}.` : '');
   return runWithFallback(registry, 'vision', data.provider, (provider, routedModel) =>
-    provider.vision({ prompt, images: [data.image], model: data.model ?? routedModel }), 'ocr',
+    provider.vision({ prompt, images: [data.image as string], model: data.model ?? routedModel }), 'ocr',
   );
 };
 
@@ -615,6 +670,15 @@ export const webhookProcessor: ProcessorFn = async (job) => {
 // ---------- Worker Audio ----------
 export const audioProcessor: ProcessorFn = async (job, registry) => {
   const data = job.data as any;
+  if (!data.audio && data.filePath) {
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const fileData = await readFile(data.filePath);
+      data.audio = fileData.toString('base64');
+    } catch (e) {
+      console.error('[WORKER] Erro ao ler audio do disco:', e);
+    }
+  }
   return runWithFallback(registry, 'audio', data.provider, (provider, routedModel) =>
     provider.audio ? provider.audio({ ...data, model: data.model ?? routedModel }) : (provider as any).notSupported('audio'), 'general',
   );
@@ -723,6 +787,31 @@ export const orchestratorProcessor: ProcessorFn = async (job, registry) => {
   });
 };
 
+export const multimodelProcessor: ProcessorFn = async (job, registry) => {
+  const data = job.data as any;
+  
+  const { ModelRouter } = await import('@api-platform/shared');
+  const router = new ModelRouter(registry);
+  
+  const models = data.models ?? { tier: 'fast' }; 
+  
+  const start = Date.now();
+  const responses = await router.executeMultiModel(data, models);
+  
+  return ok({
+    provider: 'multimodel',
+    model: 'fan-out',
+    executionTime: Date.now() - start,
+    result: {
+      responses: responses.map((res: any) => ({
+        model: res.model,
+        message: res.result.message,
+        tokens: res.tokens
+      }))
+    }
+  });
+};
+
 export const processors: Record<string, ProcessorFn> = {
   text: textProcessor,
   vision: visionProcessor,
@@ -736,6 +825,7 @@ export const processors: Record<string, ProcessorFn> = {
   audio: audioProcessor,
   mission: missionProcessor,
   orchestrator: orchestratorProcessor,
+  multimodel: multimodelProcessor,
 };
 
 

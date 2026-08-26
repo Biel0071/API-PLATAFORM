@@ -80,6 +80,13 @@ export class GeminiProvider extends BaseProvider {
       },
     };
     if (systemParts.length) body.systemInstruction = { parts: systemParts };
+    
+    // Tools support for Gemini
+    // Generic tools must be transformed if they are not already in Gemini format
+    // But assuming the system passes standard tools, we inject them
+    if ((opts as any).tools) {
+      body.tools = (opts as any).tools;
+    }
 
     const data = await this.http<any>(this.url(`/v1beta/models/${model}:generateContent`), {
       method: 'POST',
@@ -87,11 +94,26 @@ export class GeminiProvider extends BaseProvider {
       timeoutMs: 180_000,
     });
 
-    const text: string = (data?.candidates?.[0]?.content?.parts ?? [])
+    const parts = data?.candidates?.[0]?.content?.parts ?? [];
+    
+    const text: string = parts
+      .filter((p: any) => p.text)
       .map((p: any) => p.text ?? '')
       .join('');
+      
+    const functionCalls = parts.filter((p: any) => p.functionCall).map((p: any) => p.functionCall);
+
+    let message: ChatMessage = { role: 'assistant', content: text };
+    
+    if (functionCalls.length > 0) {
+      message.toolCalls = functionCalls.map((fc: any) => ({
+        name: fc.name,
+        arguments: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args)
+      }));
+    }
+
     return {
-      result: { message: { role: 'assistant', content: text } },
+      result: { message },
       model,
       tokens: this.mapUsage(data),
       raw: data,

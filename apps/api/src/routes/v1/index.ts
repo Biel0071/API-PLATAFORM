@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import {
   audioSchema,
@@ -174,6 +178,54 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
     };
   });
 
+
+  // ---------- Ingestão de Arquivos (Multipart) ----------
+  app.post('/upload', { config: rlDefault, schema: { tags: ['v1'] } }, async (req, reply) => {
+    if (!req.isMultipart()) {
+      return reply.code(400).send(fail('BAD_REQUEST', 'Requisicao deve ser multipart/form-data'));
+    }
+
+    const payload: Record<string, any> = {};
+    let tempFilePath: string | undefined;
+
+    const parts = req.parts();
+    for await (const part of parts) {
+      if (part.type === 'file') {
+        const ext = path.extname(part.filename) || '.bin';
+        tempFilePath = path.join(tmpdir(), `apiplatform-upload-${randomUUID()}${ext}`);
+        
+        // Stream pipeline direto pro disco (libera RAM/Event Loop)
+        await pipeline(part.file, createWriteStream(tempFilePath));
+      } else {
+        // String/Text fields
+        payload[part.fieldname] = part.value;
+      }
+    }
+
+    if (!tempFilePath) {
+      return reply.code(400).send(fail('BAD_REQUEST', 'Nenhum arquivo enviado no multipart'));
+    }
+
+    payload.filePath = tempFilePath; // O Worker lera deste caminho absoluto
+    
+    // Fallback queue default to 'video' for now, but client can send 'queue' field
+    const targetQueue = (payload.queue as QueueName) ?? 'video';
+    
+    const queued = await enqueueWithTiming(targetQueue, payload, {
+      tenantId: req.auth?.tenantId,
+      projectId: req.auth?.projectId,
+      priority: payload.priority ? Number(payload.priority) : 5,
+      callback: payload.callback ? JSON.parse(payload.callback as string) : undefined,
+    });
+
+    return reply.code(202).send({
+      success: true, 
+      ...queued, 
+      status: 'waiting', 
+      execution: 'async',
+      ...queueEntryPopulation(queued.queue),
+    });
+  });
 
   // ---------- Texto ----------
   app.post('/text', { config: rlText, schema: { tags: ['v1'] } }, async (req, reply) => {

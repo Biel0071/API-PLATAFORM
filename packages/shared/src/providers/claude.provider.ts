@@ -111,8 +111,21 @@ export class ClaudeProvider extends BaseProvider {
       .map((b: any) => b.text)
       .join('');
 
+    const toolUses = (data.content ?? [])
+      .filter((b: any) => b.type === 'tool_use')
+      .map((b: any) => ({
+         id: b.id,
+         name: b.name,
+         arguments: typeof b.input === 'string' ? b.input : JSON.stringify(b.input)
+      }));
+
+    let message: ChatMessage = { role: 'assistant', content: text };
+    if (toolUses.length > 0) {
+      message.toolCalls = toolUses;
+    }
+
     return {
-      result: { message: { role: 'assistant', content: text } },
+      result: { message },
       model,
       tokens: this.mapUsage(data.usage),
       raw: data,

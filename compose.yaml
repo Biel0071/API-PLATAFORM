@@ -1,6 +1,7 @@
 services:
   apiplatform:
     image: apiplatform
+    restart: unless-stopped
     build:
       context: .
       dockerfile: ./Dockerfile

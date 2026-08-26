@@ -9,6 +9,7 @@ import { redis } from './lib/redis';
 import { registerAuth } from './plugins/auth';
 import { registerSecurity } from './plugins/security';
 import { registerSwagger } from './plugins/swagger';
+import fastifyMultipart from '@fastify/multipart';
 import { registryProm } from './metrics';
 import { registry } from './services/ai.service';
 import { v1Routes } from './routes/v1';
@@ -31,6 +32,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerSecurity(app);
   await registerAuth(app);
   await registerSwagger(app, env.DOCS_ENABLED);
+
+  const maxVideoSize = Number(process.env.MAX_VIDEO_SIZE) || 50 * 1024 * 1024;
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: maxVideoSize,
+    }
+  });
 
   // ---------- Proteção Antecipada de Payload ----------
   app.addHook('preHandler', async (req, reply) => {

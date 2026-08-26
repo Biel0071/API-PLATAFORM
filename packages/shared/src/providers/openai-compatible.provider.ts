@@ -167,10 +167,24 @@ export class OpenAICompatibleProvider extends BaseProvider {
       });
 
       const content: string = data?.choices?.[0]?.message?.content ?? '';
+      const toolCalls = data?.choices?.[0]?.message?.tool_calls;
+      const finishReason = data?.choices?.[0]?.finish_reason ?? 'stop';
       
       const chunks: AsyncIterable<import('../types').ProviderChunk> = {
         async *[Symbol.asyncIterator]() {
-          yield { type: 'delta', text: content, finishReason: 'stop' };
+          if (toolCalls && toolCalls.length > 0) {
+            yield { 
+               type: 'tool_calls', 
+               toolCalls: toolCalls.map((tc: any) => ({ 
+                 index: 0, 
+                 id: tc.id, 
+                 name: tc.function?.name, 
+                 arguments: tc.function?.arguments 
+               })) 
+            };
+          } else {
+            yield { type: 'delta', text: content, finishReason };
+          }
           if (data?.usage) {
             yield { type: 'usage', promptTokens: data.usage.prompt_tokens, completionTokens: data.usage.completion_tokens, totalTokens: data.usage.total_tokens };
           }
