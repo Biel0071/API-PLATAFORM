@@ -3,73 +3,169 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>API Platform — Dashboard</title>
-  <link rel="stylesheet" href="app.css?v=13" />
+  <title>API Platform — Enterprise Gateway</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>" />
+  <link rel="stylesheet" href="app.css?v=0cd2fd4809fb1799" />
 </head>
 <body>
+  <!-- Tela de Login -->
   <div id="login" class="login hidden">
     <form id="login-form" class="login-card">
-      <h1>API Platform</h1>
-      <p class="muted">Painel administrativo</p>
+      <div style="text-align: center; margin-bottom: 0.5rem;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 16px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); box-shadow: 0 0 25px rgba(59, 130, 246, 0.6); margin-bottom: 0.85rem;">
+          <span style="font-size: 1.6rem; color: #fff;">⚡</span>
+        </div>
+        <div class="badge ok" style="margin: 0 auto 0.75rem; font-size: 0.7rem;">ENTERPRISE GATEWAY</div>
+        <h1>API Platform</h1>
+        <p class="muted">Painel Administrativo &amp; Orquestrador de IA</p>
+      </div>
+
       <label>Email ou usuário
-        <input type="text" id="login-email" value="admin" required autocomplete="username" />
+        <input type="text" id="login-email" value="admin" required autocomplete="username" placeholder="seu-usuario" />
       </label>
+
       <label>Senha
         <span class="password-field">
-          <input type="password" id="login-password" required autocomplete="current-password" />
+          <input type="password" id="login-password" required autocomplete="current-password" placeholder="••••••••" />
           <button type="button" id="toggle-password" class="password-toggle" aria-label="Mostrar senha" aria-pressed="false">Mostrar</button>
         </span>
       </label>
-      <button type="submit">Entrar</button>
+
+      <button type="submit" id="btn-login-submit" style="margin-top: 0.5rem;">Entrar no Sistema →</button>
       <p id="login-error" class="error hidden"></p>
     </form>
   </div>
 
+  <!-- Shell do Dashboard -->
   <div id="shell" class="shell hidden">
-    <aside class="sidebar">
-      <h2>API Platform</h2>
+    <!-- Overlay do drawer para mobile -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+
+    <aside class="sidebar" id="sidebar">
+      <h2>
+        <span class="brand-glow">⚡</span>
+        <span>API Platform</span>
+        <span class="brand-tag">PRO</span>
+      </h2>
       <nav class="nav-groups">
-        <a class="nav-primary" href="#/home"><span>▦</span> Overview</a>
-        <a class="nav-primary" href="#/projects"><span>◫</span> Projects</a>
-        <a class="nav-primary" href="#/providers"><span>✦</span> Providers</a>
+        <div class="nav-category">Principal</div>
+        <a class="nav-primary" href="#/home"><span>▦</span> Visão geral</a>
+        <a class="nav-primary" href="#/projects"><span>◫</span> Projetos</a>
+        <a class="nav-primary" href="#/providers"><span>✦</span> Provedores</a>
         <a class="nav-primary" href="#/keys"><span>🔑</span> API Keys</a>
         <a class="nav-primary" href="#/playground"><span>⚡</span> Playground</a>
         <a class="nav-primary" href="#/mission"><span>🎯</span> Mission Viewer</a>
         <a class="nav-primary" href="#/logs"><span>≡</span> Logs</a>
-        
+        <section class="nav-group" data-group="generation">
+          <button class="nav-group-toggle"><span>Geração e modelos</span><b>⌄</b></button>
+          <div class="nav-submenu">
+            <a href="#/models">Modelos e custos</a>
+            <a href="#/prompts">Biblioteca de prompts</a>
+            <a href="#/image-generate">Gerar imagens</a>
+            <a href="#/image-edit">Editar imagens</a>
+            <a href="#/video-ai">Vídeo e IA</a>
+            <a href="#/image-history">Histórico de imagens</a>
+            <a href="#/image-models">Modelos de imagem</a>
+            <a href="#/image-providers">Provedores de imagem</a>
+            <a href="#/image-queue">Fila de imagens</a>
+            <a href="#/image-analytics">Uso de imagens</a>
+            <a href="#/workflow-manager">Workflows ComfyUI</a>
+            <a href="#/comfy-wizard">Configurar ComfyUI</a>
+            <a href="#/ollama">Ollama</a>
+          </div>
+        </section>
+
+        <div class="nav-category">Infraestrutura</div>
         <section class="nav-group" data-group="system">
           <button class="nav-group-toggle"><span>⚙ System Status</span><b>⌄</b></button>
           <div class="nav-submenu">
             <a href="#/health">Health Check</a>
+            <a href="#/workers">Workers</a>
+            <a href="#/queues">Filas e jobs</a>
+            <a href="#/usage">Tokens e custos</a>
+            <a href="#/cache">Cache</a>
             <a href="#/metrics">Prometheus Metrics</a>
-            <a href="#/icp">ICP Integration</a>
-            <a href="#/runtime">Runtime Config</a>
+            <a href="#/icp">Cluster local</a>
+            <a href="#/runtime">Runtime da API</a>
           </div>
         </section>
-        
+
+        <div class="nav-category">Gestão</div>
         <section class="nav-group" data-group="admin">
           <button class="nav-group-toggle"><span>🛡️ Admin</span><b>⌄</b></button>
           <div class="nav-submenu">
             <a href="#/tenants">Tenants</a>
             <a href="#/users">Users</a>
             <a href="#/settings">Settings</a>
+            <a href="#/security">Segurança e auditoria</a>
+            <a href="#/backup">Backup</a>
           </div>
         </section>
 
-        <a class="nav-primary fenix-btn" href="#/fenix" style="margin-top:20px; background: rgba(59,130,246,0.1); border-left: 3px solid #3b82f6;"><span>🚀</span> FÊNIX Connect</a>
+        <section class="nav-group" data-group="integrations">
+          <button class="nav-group-toggle"><span>Integrações opcionais</span><b>⌄</b></button>
+          <div class="nav-submenu">
+            <a href="#/base-url">URL da plataforma</a>
+            <a href="#/sdk">SDKs</a>
+            <a href="#/lovable">Lovable</a>
+            <a href="#/integrations">Outros clientes</a>
+            <a href="#/fenix">FÊNIX Connect</a>
+          </div>
+        </section>
       </nav>
-      <button id="logout" class="ghost">Sair</button>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user-card">
+          <div class="user-avatar">A</div>
+          <div class="user-info">
+            <div class="user-name">Administrador</div>
+            <div class="user-status">Live Gateway</div>
+          </div>
+        </div>
+        <button id="logout" class="ghost">Sair do Sistema</button>
+      </div>
     </aside>
-    <main id="content"></main>
+
+    <div class="app-layout">
+      <!-- Barra Superior com Telemetria e Controles Rápidos -->
+      <header class="top-header">
+        <div class="header-left">
+          <button id="sidebar-toggle" class="btn-icon mobile-only" aria-label="Abrir menu de navegação">☰</button>
+          <div class="top-breadcrumb" id="top-breadcrumb">
+            <span class="bc-section">API Platform</span>
+            <span class="bc-sep">/</span>
+            <span class="bc-page" id="bc-page-title">Visao Geral do Sistema</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-status-pill" title="API Platform funciona de forma independente">
+            <span class="status-dot"></span>
+            <span class="status-label">API independente</span>
+          </div>
+          <button id="toggle-sound" class="btn-icon sound-btn" title="Feedback Sonoro dos Cliques (Alternar)">
+            <span id="sound-icon">🔊</span>
+          </button>
+          <a href="#/playground" class="header-quick-action" title="Abrir Playground de Inferência">
+            <span>⚡ Playground</span>
+          </a>
+        </div>
+      </header>
+
+      <main id="content"></main>
+    </div>
+
     <!-- Modal genérico para UI -->
-    <div id="modal-overlay" class="modal-overlay hidden">
-      <div id="modal-content" class="modal-card">
+    <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div id="modal-content" class="modal-card" tabindex="-1">
         <button id="modal-close" class="ghost modal-close-btn">&times;</button>
         <div id="modal-body"></div>
       </div>
     </div>
+
+    <!-- Container de Toasts de Feedback Instantâneo -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
   </div>
 
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=0cd2fd4809fb1799"></script>
 </body>
 </html>

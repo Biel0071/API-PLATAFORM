@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import path from 'node:path';
 import { ZodError } from 'zod';
+import { Prisma } from '@prisma/client';
 import { fail, ProviderError } from '@api-platform/shared';
 import { env } from './config/env';
 import { logger } from './lib/logger';
@@ -15,6 +16,9 @@ import { registry } from './services/ai.service';
 import { v1Routes } from './routes/v1';
 import { adminRoutes } from './routes/admin';
 import { queueStats } from './services/queue.service';
+import { registerOpenAICompatRoutes } from './routes/v1/openai-compat';
+import { registerAnthropicCompatRoutes } from './routes/v1/anthropic-compat';
+import { providerHealthState } from './services/health-check.service';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app: FastifyInstance = Fastify({
@@ -53,6 +57,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // ---------- Tratamento de erros padrao ----------
   app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return reply.code(409).send(fail('CONFLICT', 'Já existe um registro com esse identificador'));
+    }
     if (err instanceof ZodError) {
       return reply.code(400).send(fail('VALIDATION_ERROR', 'Payload invalido', err.flatten()));
     }
@@ -74,28 +81,57 @@ export async function buildApp(): Promise<FastifyInstance> {
     const requestStart = Date.now();
     const checks: Record<string, boolean | string | number | any> = {};
     
-    // Core Dependencies
+    // Core Dependencies & Queue Metrics probed in parallel with strict timeout
     checks.api = true;
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      checks.postgres = true;
-    } catch {
-      checks.postgres = false;
+    const probeTimeout = 1500;
+    const probeWithTimeout = async <T>(p: Promise<T>, fallback: T): Promise<T> => {
+      let timer: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), probeTimeout);
+      });
+      try {
+        return await Promise.race([
+          p.then((res) => {
+            if (timer) clearTimeout(timer);
+            return res;
+          }).catch(() => {
+            if (timer) clearTimeout(timer);
+            return fallback;
+          }),
+          timeoutPromise,
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    const [pgOk, redisOk, qStats, workerCount] = await Promise.all([
+      probeWithTimeout(prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false), false),
+      probeWithTimeout(redis.ping().then((res) => res === 'PONG').catch(() => false), false),
+      probeWithTimeout(queueStats().catch(() => null), null),
+      probeWithTimeout(prisma.workerNode.count({ where: { lastHeartbeat: { gt: new Date(Date.now() - 60000) } } }).catch(() => null), null),
+    ]);
+
+    checks.postgres = pgOk;
+    checks.redis = redisOk;
+
+    if (qStats) {
+      const qDepth = qStats.reduce((acc, q) => acc + (q.waiting || 0), 0);
+      const activeCount = qStats.reduce((acc, q) => acc + (q.active || 0), 0);
+      checks.queue = { waiting: qDepth, active: activeCount };
+    } else {
+      checks.queue = 'Standby';
     }
-    try {
-      checks.redis = (await redis.ping()) === 'PONG';
-    } catch {
-      checks.redis = false;
-    }
+    checks.workers = workerCount;
 
     // Extended Infra Checks. ssl reflete a presença real de um proxy TLS na
     // frente (o deploy seta SSL_ENABLED=true quando o Caddy sobe), não uma
     // inferência por NODE_ENV. docker/icp seguem env explícita quando houver.
-    checks.dashboard = true;
+    checks.dashboard = null;
     checks.mongo = 'N/A';
-    checks.docker = process.env.DOCKER_ENV !== 'false';
+    checks.docker = process.env.DOCKER_ENV === 'true' ? true : null;
     checks.ssl = process.env.SSL_ENABLED === 'true';
-    checks.icp = process.env.ICP_INTEGRATION !== 'false';
+    checks.icp = null;
     
     // Capabilities Status
     checks.mission = true;
@@ -111,36 +147,22 @@ export async function buildApp(): Promise<FastifyInstance> {
     };
     checks.memory = memory;
     checks.cpu = os.cpus().length;
-    checks.disk = 'OK'; // Hard to read from node easily without shell, assuming OK if running
+    checks.disk = null;
     checks.version = '1.0.0-enterprise';
-    
-    // Worker / Queue Metrics
-    try {
-      const stats = await queueStats();
-      const qDepth = stats.reduce((acc, q) => acc + q.waiting, 0);
-      const activeCount = stats.reduce((acc, q) => acc + q.active, 0);
-      checks.queue = { waiting: qDepth, active: activeCount };
-      checks.workers = activeCount;
-    } catch {
-      checks.queue = 'Error';
-      checks.workers = 0;
-    }
 
     const deepProviderHealth = process.env.DEEP_PROVIDER_HEALTH === 'true';
     const providerDetails: Record<string, any> = {};
     for (const p of registry.list()) {
       if (!deepProviderHealth) {
+        const measured = providerHealthState.get(p.name);
+        const fresh = measured && Date.now() - measured.lastCheck < 120000;
         providerDetails[p.name] = {
-          online: true,
-          latency: 0,
+          online: fresh ? measured.status === 'healthy' : null,
+          latency: fresh ? measured.latency : null,
           models: [],
-          message: 'shallow health; set DEEP_PROVIDER_HEALTH=true for provider probes',
-          status: 'ONLINE',
-          cost: 0,
-          tokens: 0,
-          requests: 0,
-          score: 1.0,
-          fallback: true,
+          message: fresh ? 'background provider probe' : 'provider probe pending or stale',
+          status: fresh ? (measured.status === 'healthy' ? 'ONLINE' : 'OFFLINE') : 'UNKNOWN',
+          checkedAt: measured ? new Date(measured.lastCheck).toISOString() : null,
         };
         continue;
       }
@@ -190,6 +212,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/v1/health', { schema: { tags: ['system'] } }, getHealthPayload);
 
   app.get('/health', { schema: { tags: ['system'] } }, getHealthPayload);
+  app.get('/ready', { schema: { tags: ['system'] } }, async (_request, reply) => {
+    const health = await getHealthPayload();
+    return reply.code(health.success ? 200 : 503).send(health);
+  });
 
 
   // ---------- Metricas Prometheus ----------
@@ -211,8 +237,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   }
 
   // ---------- Rotas ----------
-  const { registerOpenAICompatRoutes } = require('./routes/v1/openai-compat');
-  const { registerAnthropicCompatRoutes } = require('./routes/v1/anthropic-compat');
   await app.register(registerOpenAICompatRoutes);
   await app.register(registerAnthropicCompatRoutes);
   await app.register(v1Routes, { prefix: '/v1' });
