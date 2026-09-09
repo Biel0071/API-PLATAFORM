@@ -20,7 +20,7 @@ A API Platform mantém Fastify, `ProviderRegistry`, fallback por provider, BullM
 - FÊNIX Enterprise API: container saudável e porta 4400 aberta.
 - Ollama: saudável; modelo instalado: `qwen2.5:3b`.
 - Providers cloud: sem credenciais configuradas; não são anunciados como disponíveis.
-- Testes da API no build remoto: 11 arquivos, 45 testes aprovados.
+- Testes da API no build remoto: 12 arquivos, 50 testes aprovados; suíte local completa: 16 arquivos, 86 testes aprovados.
 
 ## Limitações atuais
 
@@ -31,10 +31,11 @@ A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o lim
 - `PromptOptimizer` estrutura objetivo, tipo, contexto, restrições e critérios sem reescrever a intenção.
 - `TaskClassifier` calcula tipo, complexidade, confiança, tokens, agentes estimados e custo.
 - O gateway registra versões e metadados da otimização para cada execução.
+- No modo `adaptive` (padrão), o gateway aplica o prompt otimizado à última mensagem do usuário antes do executor, preservando o original e o prompt derivado no metadata da execução.
 - `GET /system/ai-capacity` expõe providers, modelos, saúde, latência, fila e concorrência disponível com timeout por probe.
 
 - `JudgeService` avalia candidatos com score determinístico e seleciona vencedor.
 - `refineResponse` executa refinamentos apenas até `MAX_REFINEMENTS`/limiar/orçamento.
 - Teste `adaptive-engine.test.ts` cobre os quatro componentes; suíte total: 16 arquivos, 85 testes aprovados.
 
-Última validação na VPS: o endpoint `/system/ai-capacity` respondeu sem travar e detectou `qwen2.5:3b`; a listagem do modelo está disponível, mas a inferência de health excedeu 20 s e foi reportada como `offline` por segurança. Isso é degradação real de capacidade, não status simulado.
+Última validação na VPS: `/v1/health` retornou `success:true`; `/system/ai-capacity` reportou Ollama `ONLINE` com latência medida de aproximadamente 24,8 s. Smoke test real em `/v1/chat` retornou `OK` usando `qwen2.5:3b`, com 63 tokens contabilizados. A inferência permanece lenta sob a memória disponível da VPS.
