@@ -39,3 +39,7 @@ A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o lim
 - Teste `adaptive-engine.test.ts` cobre os quatro componentes; suíte total: 16 arquivos, 85 testes aprovados.
 
 Última validação na VPS: `/v1/health` retornou `success:true`; `/system/ai-capacity` reportou Ollama `ONLINE` com latência medida de aproximadamente 24,8 s. Smoke test real em `/v1/chat` retornou `OK` usando `qwen2.5:3b`, com 63 tokens contabilizados. A inferência permanece lenta sob a memória disponível da VPS.
+
+## Auditoria do dashboard em produção
+
+A auditoria Playwright contra `http://209.50.241.22:8081` percorreu 34 rotas em desktop e mobile, sem erros JavaScript. Os endpoints administrativos de projetos, providers, configurações, modelos e prompts responderam HTTP 200 autenticados; `/v1/missions` passou a responder 401 sem credencial, confirmando a rota. As falhas restantes são abortos/timeout do SPA durante navegação concorrente enquanto o probe do Qwen demora dezenas de segundos. A próxima correção deve aplicar cancelamento e fallback por tela, mantendo o aviso honesto de provider lento/offline.
