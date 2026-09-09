@@ -217,6 +217,24 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(health.success ? 200 : 503).send(health);
   });
 
+  // Operational capacity projection: names and counters only, never credentials.
+  app.get('/system/ai-capacity', { schema: { tags: ['system'] } }, async () => {
+    const providers = await Promise.all(registry.list().map(async (provider) => {
+      const started = Date.now();
+      try {
+        const health = await provider.health();
+        const models = await provider.models().catch(() => []);
+        return { name: provider.name, status: health.ok ? 'healthy' : 'offline', health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities };
+      } catch (error) {
+        return { name: provider.name, status: 'offline', health: false, latencyMs: Date.now() - started, models: [], capabilities: provider.capabilities, error: error instanceof Error ? error.message : 'provider probe failed' };
+      }
+    }));
+    const queues = await queueStats().catch(() => []);
+    const queuedRequests = queues.reduce((sum, queue) => sum + Number(queue.waiting || 0), 0);
+    const activeRequests = queues.reduce((sum, queue) => sum + Number(queue.active || 0), 0);
+    return { success: true, providers, healthyProviders: providers.filter((provider) => provider.health).map((provider) => provider.name), keys: { configured: 'redacted', healthy: 'redacted' }, activeRequests, queuedRequests, availableConcurrency: Math.max(0, Number(process.env.MAX_GLOBAL_AI_CONCURRENCY || 8) - activeRequests), timestamp: new Date().toISOString() };
+  });
+
 
   // ---------- Metricas Prometheus ----------
   if (env.METRICS_ENABLED) {

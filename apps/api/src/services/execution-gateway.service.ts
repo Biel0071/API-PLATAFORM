@@ -17,6 +17,8 @@ import { registry, providerCircuit, fallbackOrder } from './ai.service';
 import { enqueueAndWait } from './queue.service';
 import { apiLayerTools, APILayerRegistry } from './apilayer.registry';
 import crypto from 'crypto';
+import { TaskClassifier } from './task-classifier.service';
+import { PromptOptimizer } from './prompt-optimizer.service';
 
 export interface Executor {
   execute(ctx: ExecutionContext, input: any): Promise<ProviderResponse<any>>;
@@ -265,7 +267,8 @@ export class ExecutionGateway {
       top_p: payload.top_p,
       tools: payload.tools,
       system: payload.system,
-      tenant
+      tenant,
+      input: payload,
     });
     
     if (!stream) {
@@ -285,6 +288,10 @@ export class ExecutionGateway {
     const intent = FastIntentClassifier.classify(messages, { tools: payload.tools });
     let mode = intent.mode;
     tracer.event('finish', 'intent_classifier', { mode, confidence: intent.confidence });
+    const userPrompt = typeof payload.prompt === 'string' ? payload.prompt : messages.filter((m: any) => m.role === 'user').map((m: any) => m.content).join('\n');
+    const classification = TaskClassifier.classify(messages, { tools: payload.tools });
+    const optimization = PromptOptimizer.optimize({ originalPrompt: userPrompt, taskType: classification.taskType });
+    ctx.metadata = { ...ctx.metadata, classification, promptOptimization: { promptVersion: optimization.promptVersion, optimizerVersion: optimization.optimizerVersion, estimatedTokens: optimization.estimatedTokens } };
     
     // 3. Complexity (only if WORKFLOW)
     if (mode === ExecutionMode.WORKFLOW) {
