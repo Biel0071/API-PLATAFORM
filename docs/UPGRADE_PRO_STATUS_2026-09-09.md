@@ -36,3 +36,5 @@ A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o lim
 - `JudgeService` avalia candidatos com score determinístico e seleciona vencedor.
 - `refineResponse` executa refinamentos apenas até `MAX_REFINEMENTS`/limiar/orçamento.
 - Teste `adaptive-engine.test.ts` cobre os quatro componentes; suíte total: 16 arquivos, 85 testes aprovados.
+
+Última validação na VPS: o endpoint `/system/ai-capacity` respondeu sem travar e detectou `qwen2.5:3b`; a listagem do modelo está disponível, mas a inferência de health excedeu 20 s e foi reportada como `offline` por segurança. Isso é degradação real de capacidade, não status simulado.
