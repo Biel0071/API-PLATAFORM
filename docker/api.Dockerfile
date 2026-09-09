@@ -14,7 +14,7 @@ COPY apps/worker/package.json apps/worker/
 
 # The lockfile is committed; deterministic CI install avoids resolver work and
 # prevents long, non-reproducible deploy jobs on the VPS.
-RUN npm ci --workspaces --include-workspace-root
+RUN npm ci --workspaces --include-workspace-root --ignore-scripts --prefer-offline
 
 COPY packages ./packages
 COPY apps/api ./apps/api
