@@ -225,6 +225,18 @@ export class ResponseComposer {
       if (!syncResponse.tokens) {
          syncResponse.tokens = { prompt: 0, completion: 0, total: 0 };
       }
+      const metadata = ctx.metadata as any;
+      syncResponse.adaptive = {
+        taskType: metadata?.classification?.taskType,
+        complexityScore: metadata?.classification?.complexityScore,
+        confidenceScore: metadata?.classification?.confidenceScore,
+        strategy: metadata?.strategy?.selected,
+        requestedMode: metadata?.strategy?.requestedMode,
+        maxAgents: metadata?.strategy?.maxAgents,
+        promptVersion: metadata?.promptOptimization?.promptVersion,
+        optimizerVersion: metadata?.promptOptimization?.optimizerVersion,
+        applied: metadata?.promptOptimization?.applied === true,
+      };
     }
     
     return response;
