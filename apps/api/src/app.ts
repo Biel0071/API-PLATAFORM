@@ -222,7 +222,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     const providers = await Promise.all(registry.list().map(async (provider) => {
       const started = Date.now();
       try {
-        const health = await provider.health();
+        const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('provider probe timeout')), 2500));
+        const health = await Promise.race([provider.health(), timeout]);
         const models = await provider.models().catch(() => []);
         return { name: provider.name, status: health.ok ? 'healthy' : 'offline', health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities };
       } catch (error) {
