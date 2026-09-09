@@ -267,8 +267,7 @@ export class ExecutionGateway {
       top_p: payload.top_p,
       tools: payload.tools,
       system: payload.system,
-      tenant,
-      input: payload,
+      tenant,
     });
     
     if (!stream) {
