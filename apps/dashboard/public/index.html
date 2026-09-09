@@ -5,22 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>API Platform — Enterprise Gateway</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>" />
-  <link rel="stylesheet" href="app.css?v=0cd2fd4809fb1799" />
+  <link rel="stylesheet" href="app.css?v=742c228c0985005b" />
 </head>
 <body>
   <!-- Tela de Login -->
   <div id="login" class="login hidden">
     <form id="login-form" class="login-card">
-      <div style="text-align: center; margin-bottom: 0.5rem;">
-        <div style="display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 16px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); box-shadow: 0 0 25px rgba(59, 130, 246, 0.6); margin-bottom: 0.85rem;">
+      <div class="login-brand">
+        <div class="login-mark" aria-hidden="true">
           <span style="font-size: 1.6rem; color: #fff;">⚡</span>
         </div>
-        <div class="badge ok" style="margin: 0 auto 0.75rem; font-size: 0.7rem;">ENTERPRISE GATEWAY</div>
+        <div class="badge ok login-badge">ENTERPRISE GATEWAY</div>
         <h1>API Platform</h1>
-        <p class="muted">Painel Administrativo &amp; Orquestrador de IA</p>
+        <p class="muted">Gateway unificado para suas operações de IA</p>
+        <p class="login-caption">Acesse o painel para configurar projetos, modelos e integrações.</p>
       </div>
 
-      <label>Email ou usuário
+      <label>Usuário ou e-mail
         <input type="text" id="login-email" value="admin" required autocomplete="username" placeholder="seu-usuario" />
       </label>
 
@@ -31,7 +32,7 @@
         </span>
       </label>
 
-      <button type="submit" id="btn-login-submit" style="margin-top: 0.5rem;">Entrar no Sistema →</button>
+      <button type="submit" id="btn-login-submit" style="margin-top: 0.5rem;">Acessar painel <span aria-hidden="true">→</span></button>
       <p id="login-error" class="error hidden"></p>
     </form>
   </div>
@@ -166,6 +167,6 @@
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
   </div>
 
-  <script src="app.js?v=0cd2fd4809fb1799"></script>
+  <script src="app.js?v=742c228c0985005b"></script>
 </body>
 </html>
