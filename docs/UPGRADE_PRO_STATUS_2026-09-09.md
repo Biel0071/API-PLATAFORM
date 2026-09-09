@@ -25,3 +25,10 @@ A API Platform mantém Fastify, `ProviderRegistry`, fallback por provider, BullM
 ## Limitações atuais
 
 A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o limite de probes internos, embora o serviço esteja operacional e o liveness esteja verde. A expansão para providers cloud depende de credenciais reais inseridas pelo administrador. Refinamento, judge e execução paralela avançada ainda exigem implementação e testes dedicados antes de declarar o Upgrade Pro completo.
+
+## Núcleo adaptativo incremental
+
+- `PromptOptimizer` estrutura objetivo, tipo, contexto, restrições e critérios sem reescrever a intenção.
+- `TaskClassifier` calcula tipo, complexidade, confiança, tokens, agentes estimados e custo.
+- O gateway registra versões e metadados da otimização para cada execução.
+- `GET /system/ai-capacity` expõe providers, modelos, saúde, latência, fila e concorrência disponível com timeout por probe.
