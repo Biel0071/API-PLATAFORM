@@ -43,3 +43,5 @@ A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o lim
 ## Auditoria do dashboard em produção
 
 A auditoria Playwright contra `http://209.50.241.22:8081` percorreu 34 rotas em desktop e mobile, sem erros JavaScript. Os endpoints administrativos de projetos, providers, configurações, modelos e prompts responderam HTTP 200 autenticados; `/v1/missions` passou a responder 401 sem credencial, confirmando a rota. As falhas restantes são abortos/timeout do SPA durante navegação concorrente enquanto o probe do Qwen demora dezenas de segundos. A próxima correção deve aplicar cancelamento e fallback por tela, mantendo o aviso honesto de provider lento/offline.
+
+Após as correções de abortos obsoletos e da rota administrativa de métricas, a rodada final percorreu 38 rotas desktop/mobile: 79 checks aprovados, zero falhas e zero erros JavaScript. O único HTTP 401 foi o cenário esperado de senha inválida.
