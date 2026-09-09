@@ -32,3 +32,7 @@ A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o lim
 - `TaskClassifier` calcula tipo, complexidade, confiança, tokens, agentes estimados e custo.
 - O gateway registra versões e metadados da otimização para cada execução.
 - `GET /system/ai-capacity` expõe providers, modelos, saúde, latência, fila e concorrência disponível com timeout por probe.
+
+- `JudgeService` avalia candidatos com score determinístico e seleciona vencedor.
+- `refineResponse` executa refinamentos apenas até `MAX_REFINEMENTS`/limiar/orçamento.
+- Teste `adaptive-engine.test.ts` cobre os quatro componentes; suíte total: 16 arquivos, 85 testes aprovados.
