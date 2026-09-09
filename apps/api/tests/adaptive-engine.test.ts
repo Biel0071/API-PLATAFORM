@@ -3,6 +3,7 @@ import { PromptOptimizer } from '../src/services/prompt-optimizer.service';
 import { TaskClassifier } from '../src/services/task-classifier.service';
 import { JudgeService } from '../src/services/judge.service';
 import { refineResponse } from '../src/services/refinement.service';
+import { executeParallel } from '../src/services/parallel-execution.service';
 
 describe('adaptive engine primitives', () => {
   it('structures a prompt without losing the original objective', () => {
@@ -28,5 +29,12 @@ describe('adaptive engine primitives', () => {
     const result = await refineResponse('x', 'OBJECTIVE: x', '', async () => 'ok', { maxRefinements: 2, qualityThreshold: 100 });
     expect(result.refinements).toBe(2);
     expect(result.stoppedReason).toBe('max_refinements');
+  });
+
+  it('isolates failed parallel candidates', async () => {
+    const result = await executeParallel([async () => 'a', async () => { throw new Error('failed'); }, async () => 'c'], 2);
+    expect(result.fulfilled).toBe(2);
+    expect(result.rejected).toBe(1);
+    expect(result.results[1]).toMatchObject({ status: 'rejected' });
   });
 });
