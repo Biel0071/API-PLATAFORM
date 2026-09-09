@@ -1,10 +1,13 @@
 import { createHash } from 'crypto';
 import { redis } from '../lib/redis';
 import { ProviderResult } from '@api-platform/shared';
+import { prisma } from '../lib/prisma';
 
 class SimpleLRU<K, V> {
   private cache = new Map<K, { value: V; expiresAt: number }>();
   constructor(private max: number) {}
+  clear() { this.cache.clear(); }
+  get size() { return this.cache.size; }
 
   get(key: K): V | undefined {
     const item = this.cache.get(key);
@@ -38,6 +41,7 @@ export interface CacheKeyParams {
   tools?: any[];
   system?: string;
   tenant: string;
+  input?: unknown;
 }
 
 export class CacheService {
@@ -48,6 +52,40 @@ export class CacheService {
   
   /** L2 TTL em segundos (15 minutos) */
   private L2_TTL = 900;
+  private epoch = '';
+
+  private async syncEpoch() {
+    const epoch = await redis.get('cache:epoch') || '0';
+    if (epoch !== this.epoch) { this.l1Cache.clear(); this.epoch = epoch; }
+    return epoch;
+  }
+
+  private async cacheKeys(): Promise<string[]> {
+    let cursor = '0';
+    const keys = new Set<string>();
+    do {
+      const result = await redis.scan(cursor, 'MATCH', 'cache:*', 'COUNT', 500);
+      cursor = result[0];
+      for (const key of result[1]) if (/^cache:(?:v\d+:)?[a-f0-9]{64}$/.test(key)) keys.add(key);
+    } while (cursor !== '0');
+    return [...keys];
+  }
+
+  async stats() {
+    const [keys, entries, usage] = await Promise.all([
+      this.cacheKeys(), prisma.cacheEntry.count(), prisma.usage.aggregate({ _sum: { cachedHits: true } }),
+    ]);
+    return { entries, redisKeys: keys.length, totalHits: usage._sum.cachedHits || 0, localEntries: this.l1Cache.size };
+  }
+
+  async clear() {
+    await redis.incr('cache:epoch');
+    this.l1Cache.clear();
+    const keys = await this.cacheKeys();
+    for (let i = 0; i < keys.length; i += 500) await redis.unlink(...keys.slice(i, i + 500));
+    const persisted = await prisma.cacheEntry.deleteMany();
+    return { redis: keys.length, persisted: persisted.count };
+  }
 
   generateKey(params: CacheKeyParams): string {
     // Fingerprint semântico
@@ -55,7 +93,7 @@ export class CacheService {
       if (typeof m.content === 'string') {
         return {
           ...m,
-          content: m.content.toLowerCase().trim().replace(/\\s+/g, ' ')
+          content: m.content
         };
       }
       return m;
@@ -64,22 +102,23 @@ export class CacheService {
     const payload = JSON.stringify({
       model: params.model,
       messages: normalizedMessages,
-      prompt: params.prompt ? params.prompt.toLowerCase().trim().replace(/\\s+/g, ' ') : undefined,
+      prompt: params.prompt,
       temperature: params.temperature,
       top_p: params.top_p,
       tools: params.tools,
       system: params.system,
       tenant: params.tenant,
+      input: params.input,
     });
     return createHash('sha256').update(payload).digest('hex');
   }
 
   async get(key: string): Promise<{ hit: 'L1' | 'L2' | 'MISS', data?: ProviderResult<any> }> {
-    const l1 = this.l1Cache.get(key);
-    if (l1) return { hit: 'L1', data: l1 };
-
     try {
-      const l2 = await redis.get(`cache:${key}`);
+      const epoch = await this.syncEpoch();
+      const l1 = this.l1Cache.get(key);
+      if (l1) return { hit: 'L1', data: l1 };
+      const l2 = await redis.get(`cache:v${epoch}:${key}`);
       if (l2) {
         const parsed = JSON.parse(l2);
         // Repopulate L1
@@ -94,12 +133,11 @@ export class CacheService {
   }
 
   async set(key: string, data: ProviderResult<any>): Promise<void> {
-    // Save to L1
-    this.l1Cache.set(key, data, this.L1_TTL);
-    
     // Save to L2
     try {
-      await redis.set(`cache:${key}`, JSON.stringify(data), 'EX', this.L2_TTL);
+      const epoch = await this.syncEpoch();
+      await redis.set(`cache:v${epoch}:${key}`, JSON.stringify(data), 'EX', this.L2_TTL);
+      this.l1Cache.set(key, data, this.L1_TTL);
     } catch (err) {
       console.warn('[Cache L2] Error writing to redis', err);
     }

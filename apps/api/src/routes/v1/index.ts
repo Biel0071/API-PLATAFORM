@@ -39,6 +39,16 @@ import { persistImageResponse } from '../../services/image-storage.service';
 import { populationSummary, queueEntryPopulation, queuePopulationSummary } from '../../services/population.service';
 import { reverseRoutes } from './reverse';
 import { memoryRoutes } from './memory';
+import { missionsRoutes } from './missions';
+import { agentsRoutes } from './agents';
+import { skillsRoutes } from './skills';
+import { eventsRoutes } from './events';
+import { projectMirrorRoutes } from './project-mirror';
+import { knowledgeGraphRoutes } from './knowledge-graph';
+import { repositoriesRoutes } from './repositories';
+import { monitoringRoutes } from './monitoring';
+import { browserQARoutes } from './browser-qa';
+import { visualIDERoutes } from './visual-ide';
 import { ConfigurationCenterService } from '../../services/configuration-center.service';
 import { SyncCenterService } from '../../services/sync-center.service';
 
@@ -87,8 +97,23 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       type === 'ocr' ? 'ocr' : type === 'embedding' ? 'embed' : type === 'image' ? 'image' :
         type === 'vision' || payload?.task === 'vision' ? 'vision' : 'text';
     const hasScope = (scope: string) => req.auth?.scopes.includes('*') || req.auth?.scopes.includes(scope);
-    if ((routePath?.startsWith('/reverse/') || routePath === '/reverse/connectors' || routePath?.startsWith('/memory/')) && !hasScope('workflow')) {
-      return reply.code(403).send(fail('INSUFFICIENT_SCOPE', 'A API key nao possui o escopo workflow'));
+    const isOperationalCoreRoute = routePath && (
+      routePath.startsWith('/reverse/') ||
+      routePath === '/reverse/connectors' ||
+      routePath.startsWith('/memory/') ||
+      routePath.startsWith('/missions') ||
+      routePath.startsWith('/agents') ||
+      routePath.startsWith('/skills') ||
+      routePath.startsWith('/events') ||
+      routePath.startsWith('/project-mirror') ||
+      routePath.startsWith('/knowledge-graph') ||
+      routePath.startsWith('/repositories') ||
+      routePath.startsWith('/monitoring') ||
+      routePath.startsWith('/browser-qa') ||
+      routePath.startsWith('/ide')
+    );
+    if (isOperationalCoreRoute && !hasScope('workflow') && !hasScope('admin')) {
+      return reply.code(403).send(fail('INSUFFICIENT_SCOPE', 'A API key nao possui o escopo workflow ou admin'));
     }
     if (routePath === '/jobs' && req.method === 'POST') {
       const job = req.body as { type?: string; payload?: Record<string, unknown> } | undefined;
@@ -119,6 +144,16 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
 
   await app.register(reverseRoutes);
   await app.register(memoryRoutes);
+  await app.register(missionsRoutes);
+  await app.register(agentsRoutes);
+  await app.register(skillsRoutes);
+  await app.register(eventsRoutes);
+  await app.register(projectMirrorRoutes);
+  await app.register(knowledgeGraphRoutes);
+  await app.register(repositoriesRoutes);
+  await app.register(monitoringRoutes);
+  await app.register(browserQARoutes);
+  await app.register(visualIDERoutes);
 
   // ---------- Centro de ConfiguraÃ§Ã£o e Sync de Cluster ----------
   app.get('/config', { schema: { tags: ['v1'] } }, async () => {
@@ -576,22 +611,6 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   // ---------- Modelos ----------
   app.get('/models', { schema: { tags: ['v1'] } }, async (req) => {
     const { provider } = req.query as { provider?: string };
-    const openAiData = [
-      { id: 'auto', object: 'model', type: 'model', created: 1700000000, owned_by: 'api-platform' },
-      { id: 'claude-3-5-sonnet-20241022', object: 'model', type: 'model', created: 1700000000, owned_by: 'anthropic' },
-      { id: 'claude-3-opus-20240229', object: 'model', type: 'model', created: 1700000000, owned_by: 'anthropic' },
-      { id: 'claude-3-haiku-20240307', object: 'model', type: 'model', created: 1700000000, owned_by: 'anthropic' },
-      { id: 'gpt-4o', object: 'model', type: 'model', created: 1700000000, owned_by: 'openai' },
-      { id: 'qwen2.5:latest', object: 'model', type: 'model', created: 1700000000, owned_by: 'ollama' },
-      { id: 'llama3:latest', object: 'model', type: 'model', created: 1700000000, owned_by: 'ollama' },
-      { id: 'deepseek-r1:latest', object: 'model', type: 'model', created: 1700000000, owned_by: 'ollama' },
-      { id: 'llama-3.3-70b-versatile', object: 'model', type: 'model', created: 1700000000, owned_by: 'groq' },
-      { id: 'meta-llama/llama-3.1-70b-instruct', object: 'model', type: 'model', created: 1700000000, owned_by: 'openrouter' },
-      { id: 'gemma2:latest', object: 'model', type: 'model', created: 1700000000, owned_by: 'ollama' },
-      { id: 'mistral:latest', object: 'model', type: 'model', created: 1700000000, owned_by: 'ollama' },
-      { id: 'whisper-large-v3', object: 'model', type: 'model', created: 1700000000, owned_by: 'whisper' },
-      { id: 'sdxl_turbo', object: 'model', type: 'model', created: 1700000000, owned_by: 'comfyui' },
-    ];
     const providers = provider ? [registry.get(provider)] : registry.list();
     const results = await Promise.all(
       providers.map(async (p) => {
@@ -604,7 +623,9 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
     );
     return {
       object: 'list',
-      data: openAiData,
+      data: results.flatMap(result => result.models.map(model => ({
+        id: model.id, object: 'model', type: 'model', created: 0, owned_by: result.provider,
+      }))),
       success: true,
       providers: results,
     };
@@ -649,18 +670,46 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
         const health = await p.health();
         let models: string[] = [];
         try { models = (await p.models()).map((m) => m.id); } catch { /* ignore */ }
+        let realRequests = 0;
+        let realTokens = 0;
+        let realCost = 0;
+        let realLatency = health.latencyMs ?? 0;
+        let healthScore = health.ok ? 1.0 : 0.0;
+
+        try {
+          const since = new Date(Date.now() - 24 * 3600 * 1000);
+          const stats = await prisma.requestLog.aggregate({
+            where: { provider: p.name, createdAt: { gte: since } },
+            _count: { id: true },
+            _sum: { totalTokens: true, cost: true },
+            _avg: { durationMs: true },
+          });
+          realRequests = stats._count.id ?? 0;
+          realTokens = stats._sum.totalTokens ?? 0;
+          realCost = Number((stats._sum.cost ?? 0).toFixed(4));
+          if (stats._avg.durationMs) {
+            realLatency = Math.round(stats._avg.durationMs);
+          }
+          const errorsCount = await prisma.requestLog.count({
+            where: { provider: p.name, createdAt: { gte: since }, success: false },
+          });
+          if (realRequests > 0) {
+            healthScore = Math.max(0, Math.round((1 - errorsCount / realRequests) * 100) / 100);
+          }
+        } catch { /* DB offline in test environment */ }
+
         return {
           name: p.name,
           capabilities: p.capabilities,
           health: health,
           status: health.ok ? 'ONLINE' : 'OFFLINE',
           models,
-          latency: health.latencyMs ?? Math.floor(Math.random() * 50) + 10,
-          requests: Math.floor(Math.random() * 1000), // Realtime metrics simulation fallback
-          tokens: Math.floor(Math.random() * 500000),
+          latency: realLatency,
+          requests: realRequests,
+          tokens: realTokens,
           fallback: true,
-          score: 1.0,
-          cost: Number((Math.random() * 10).toFixed(4)),
+          score: healthScore,
+          cost: realCost,
         };
       }),
     );

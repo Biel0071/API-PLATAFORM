@@ -67,4 +67,71 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
       context: executionMemoryContext(job.queue, payload),
     };
   });
+
+  // ---------- Memoria Operacional FENIX: Decisoes e Resolucao de Erros ----------
+  const { operationalMemoryService } = await import('../../services/operational-memory.service');
+
+  app.get('/memory/decisions', { schema: { tags: ['v1', 'memory'] } }, async (req) => {
+    const query = req.query as { tag?: string };
+    const decisions = operationalMemoryService.listDecisions({
+      projectId: req.auth?.projectId,
+      tag: query.tag,
+    });
+    return { success: true, count: decisions.length, decisions };
+  });
+
+  app.post('/memory/decisions', { schema: { tags: ['v1', 'memory'] } }, async (req, reply) => {
+    const schema = z.object({
+      title: z.string().min(1).max(200),
+      context: z.string().min(1),
+      alternatives: z.array(z.string()).optional(),
+      chosenOption: z.string().min(1),
+      rationale: z.string().min(1),
+      tags: z.array(z.string()).optional(),
+    });
+    const body = schema.parse(req.body);
+    const decision = operationalMemoryService.recordDecision({
+      ...body,
+      author: req.auth?.apiKeyId ?? 'system',
+      projectId: req.auth?.projectId,
+    });
+    return reply.code(201).send({ success: true, decision });
+  });
+
+  app.get('/memory/errors', { schema: { tags: ['v1', 'memory'] } }, async (req) => {
+    const query = req.query as { errorType?: string };
+    const errors = operationalMemoryService.listErrorResolutions({
+      projectId: req.auth?.projectId,
+      errorType: query.errorType,
+    });
+    return { success: true, count: errors.length, errors };
+  });
+
+  app.post('/memory/errors', { schema: { tags: ['v1', 'memory'] } }, async (req, reply) => {
+    const schema = z.object({
+      errorType: z.string().optional(),
+      errorMessage: z.string().min(1),
+      stackTrace: z.string().optional(),
+      rootCause: z.string().min(1),
+      resolutionApplied: z.string().min(1),
+      filesChanged: z.array(z.string()).optional(),
+      regressionTest: z.string().optional(),
+      verified: z.boolean().default(true),
+    });
+    const body = schema.parse(req.body);
+    const resolution = operationalMemoryService.recordErrorResolution({
+      ...body,
+      projectId: req.auth?.projectId,
+    });
+    return reply.code(201).send({ success: true, resolution });
+  });
+
+  app.post('/memory/search', { schema: { tags: ['v1', 'memory'] } }, async (req, reply) => {
+    const schema = z.object({
+      query: z.string().min(1),
+    });
+    const body = schema.parse(req.body);
+    const results = operationalMemoryService.searchMemory(body.query);
+    return { success: true, ...results };
+  });
 }

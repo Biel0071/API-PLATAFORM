@@ -60,7 +60,7 @@ export async function bootstrap(): Promise<void> {
         baseUrl: ollamaUrl,
         settings: {
           baseUrl: ollamaUrl,
-          defaultModel: process.env.OLLAMA_DEFAULT_MODEL || 'llama3:latest',
+          defaultModel: process.env.OLLAMA_DEFAULT_MODEL || 'qwen2.5:3b',
           embedModel: process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text',
         },
       },

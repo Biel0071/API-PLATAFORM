@@ -171,7 +171,7 @@ export async function execute<T>(
     request.model = candidateIndex === 0 ? effectiveRequest.model : clientModel;
     const requestedModel = request.model ?? 'provider-default';
     const modelKey = `${requestedModel}:${process.env.MODEL_CONFIG_VERSION ?? '1'}`;
-    const hash = cacheService.generateKey({ model: modelKey, tenant: (ctx.tenantId || ""), messages: (cacheInput as any).messages, prompt: (cacheInput as any).prompt });
+    const hash = cacheService.generateKey({ model: modelKey, tenant: (ctx.tenantId || ""), messages: (cacheInput as any).messages, prompt: (cacheInput as any).prompt, input: cacheInput });
     if (useCache) {
       const cacheResp = await cacheService.get(hash);
       const cached = cacheResp.data;

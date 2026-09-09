@@ -29,32 +29,74 @@ declare module '@fastify/jwt' {
 
 const API_KEY_CACHE_TTL = 60;
 
-function extractApiKey(req: FastifyRequest): string | undefined {
+function extractCandidateKeys(req: FastifyRequest): string[] {
+  const candidates: string[] = [];
   const headerKey = req.headers['x-api-key'];
-  if (typeof headerKey === 'string' && headerKey) return headerKey;
+  if (typeof headerKey === 'string' && headerKey.trim()) {
+    candidates.push(headerKey.trim());
+  }
   const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) return auth.slice('Bearer '.length).trim();
-  return undefined;
+  if (typeof auth === 'string') {
+    const match = auth.match(/^Bearer\s+(.+)$/i);
+    if (match && match[1].trim()) {
+      const bearerKey = match[1].trim();
+      if (!candidates.includes(bearerKey)) {
+        candidates.push(bearerKey);
+      }
+    }
+  }
+  return candidates;
 }
 
 export async function registerAuth(app: FastifyInstance): Promise<void> {
   await app.register(jwt, { secret: env.JWT_SECRET });
 
   app.decorate('requireApiKey', async (req: FastifyRequest, reply: FastifyReply) => {
-    const key = extractApiKey(req);
-    if (!key) {
+    const keys = extractCandidateKeys(req);
+    if (keys.length === 0) {
       reply.code(401).send({ success: false, error: { code: 'MISSING_API_KEY', message: 'Envie a chave em x-api-key ou Authorization: Bearer ap_...' } });
       return;
     }
-    const keyHash = hashApiKey(key);
-    const cacheId = `apiplatform:apikey:v2:${keyHash}`;
+
     let ctx: AuthContext | null = null;
-    const cached = await redis.get(cacheId).catch(() => null);
-    if (cached) {
-      try { ctx = JSON.parse(cached) as AuthContext; } catch { ctx = null; }
-    }
-    if (!ctx) {
-      const record = await prisma.apiKey.findUnique({ where: { keyHash } });
+
+    for (const key of keys) {
+      const keyHash = hashApiKey(key);
+      const isJwtCandidate = key.startsWith('eyJ') || key.split('.').length === 3;
+
+      // 1. Check Redis cache first
+      const cacheId = isJwtCandidate ? `apiplatform:jwt:v2:${keyHash}` : `apiplatform:apikey:v2:${keyHash}`;
+      const cached = await redis.get(cacheId).catch(() => null);
+      if (cached) {
+        try {
+          ctx = JSON.parse(cached) as AuthContext;
+          break;
+        } catch {
+          ctx = null;
+        }
+      }
+
+      // 2. If JWT candidate, verify cryptographically without hitting DB
+      if (isJwtCandidate) {
+        try {
+          const decoded = app.jwt.verify<{ sub: string; email: string; role?: string; tenantId?: string }>(key);
+          if (decoded && decoded.sub) {
+            const isAdmin = decoded.role === 'admin';
+            ctx = {
+              tenantId: decoded.tenantId || 'default',
+              apiKeyId: `${isAdmin ? 'admin' : 'user'}_${decoded.sub}`,
+              scopes: isAdmin ? ['*'] : ['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow'],
+            };
+            await redis.setex(cacheId, API_KEY_CACHE_TTL, JSON.stringify(ctx)).catch(() => undefined);
+            break;
+          }
+        } catch {
+          // Fall through if not a valid JWT
+        }
+      }
+
+      // 3. Database lookup for standard API Key
+      const record = await prisma.apiKey.findUnique({ where: { keyHash } }).catch(() => null);
       if (record && record.active && (!record.expiresAt || record.expiresAt > new Date())) {
         ctx = {
           tenantId: record.tenantId,
@@ -64,8 +106,10 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         };
         await redis.setex(cacheId, API_KEY_CACHE_TTL, JSON.stringify(ctx)).catch(() => undefined);
         void prisma.apiKey.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
+        break;
       }
     }
+
     if (!ctx) {
       reply.code(401).send({ success: false, error: { code: 'INVALID_API_KEY', message: 'API key invalida, expirada ou revogada' } });
       return;
