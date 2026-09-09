@@ -319,6 +319,20 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
+  // FreeLLMAPI exposes an OpenAI-compatible endpoint. Keep it isolated behind
+  // the same adapter so it participates in the normal registry/router flow.
+  if (env.FREELLMAPI_API_KEY) {
+    registry.register(
+      new OpenAICompatibleProvider({
+        name: 'freellmapi',
+        baseUrl: env.FREELLMAPI_BASE_URL ?? 'https://api.freellmapi.com/v1',
+        apiKey: env.FREELLMAPI_API_KEY,
+        defaultModel: env.FREELLMAPI_DEFAULT_MODEL,
+        capabilities: ['chat', 'vision'],
+      }),
+    );
+  }
+
   if (env.HUGGINGFACE_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
