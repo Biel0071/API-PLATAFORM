@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import { TaskClassifier } from './task-classifier.service';
 import { PromptOptimizer } from './prompt-optimizer.service';
 import { rememberExecutionSuccess } from './execution-memory.service';
+import { refineResponse } from './refinement.service';
 
 export interface Executor {
   execute(ctx: ExecutionContext, input: any): Promise<ProviderResponse<any>>;
@@ -367,8 +368,35 @@ export class ExecutionGateway {
     // 5. Execution
     tracer.event('start', 'executor', { transport: ctx.decision.transport });
     const executor = ExecutorFactory.getExecutor(ctx.decision.transport);
-    const rawResponse = await executor.execute(ctx, executionPayload);
+    let rawResponse = await executor.execute(ctx, executionPayload);
     tracer.event('finish', 'executor');
+
+    // Refinement is opt-in because it performs additional provider calls. Keep
+    // the default adaptive path fast while allowing callers to request a
+    // bounded quality pass with explicit controls.
+    const requestedRefinements = Number(payload.max_refinements ?? 0);
+    if (!stream && requestedRefinements > 0 && rawResponse && !('stream' in rawResponse)) {
+      const refinement = await refineResponse(
+        userPrompt,
+        optimization.optimizedPrompt,
+        rawResponse,
+        async (prompt) => executor.execute(ctx, { ...executionPayload, prompt }),
+        {
+          maxRefinements: requestedRefinements,
+          qualityThreshold: payload.quality_threshold,
+          budgetTokens: payload.budget,
+        },
+      );
+      rawResponse = refinement.response as typeof rawResponse;
+      ctx.metadata = {
+        ...ctx.metadata,
+        refinement: {
+          refinements: refinement.refinements,
+          qualityScore: refinement.qualityScore,
+          stoppedReason: refinement.stoppedReason,
+        },
+      };
+    }
     
     // Intercept Tool Calls from APILayer
     if (!stream && rawResponse && !('stream' in rawResponse) && rawResponse.result?.toolCalls && rawResponse.result.toolCalls.length > 0) {
