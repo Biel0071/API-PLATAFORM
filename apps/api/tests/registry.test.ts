@@ -14,6 +14,11 @@ describe('ProviderRegistry', () => {
     expect(registry.has('claude')).toBe(false); // sem ANTHROPIC_API_KEY
   });
 
+  it('registra FreeLLMAPI apenas quando existe credencial', () => {
+    expect(createRegistryFromEnv({}).has('freellmapi')).toBe(false);
+    expect(createRegistryFromEnv({ FREELLMAPI_API_KEY: 'test-key' }).has('freellmapi')).toBe(true);
+  });
+
   it('resolve por capacidade respeitando o default', async () => {
     const registry = createRegistryFromEnv({
       OLLAMA_BASE_URL: 'http://localhost:11434',
