@@ -1,4 +1,4 @@
-﻿import { ExecutionMode, IntentResult } from '@api-platform/shared';
+import { ExecutionMode, IntentResult, estimatePayloadTokens } from '@api-platform/shared';
 
 
 export class FastIntentClassifier {
@@ -26,7 +26,7 @@ export class FastIntentClassifier {
       return { mode: ExecutionMode.WORKFLOW, confidence: 0.99 };
     }
 
-    const estimatedTokens = ((...args: any[]) => 0)(messages);
+    const estimatedTokens = estimatePayloadTokens(messages as any);
     
     // Se o token count for muito grande, provavelmente precisa de raciocÃ­nio estendido
     if (estimatedTokens > 2000) {
