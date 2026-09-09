@@ -226,7 +226,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('provider probe timeout')), Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || 25_000)));
         const health = await Promise.race([provider.health(), timeout]);
         const models = await provider.models().catch(() => []);
-        return { name: provider.name, status: health.ok ? 'healthy' : 'offline', health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities };
+        return { name: provider.name, status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'), health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities };
       } catch (error) {
         return { name: provider.name, status: 'offline', health: false, latencyMs: Date.now() - started, models: [], capabilities: provider.capabilities, error: error instanceof Error ? error.message : 'provider probe failed' };
       }
