@@ -18,9 +18,10 @@
 
   async function api(path, options = {}) {
     let res;
+    const requestController = viewController;
     try {
       res = await fetch(API + path, {
-      signal: viewController.signal,
+      signal: requestController.signal,
       ...options,
       headers: {
         // content-type: application/json SO quando ha body. Fastify rejeita
@@ -32,10 +33,11 @@
       body: options.body ? JSON.stringify(options.body) : undefined,
       });
     } catch (error) {
-      if (error?.name === 'AbortError' || viewController.signal.aborted) {
-        const aborted = new Error('request aborted');
-        aborted.name = 'AbortError';
-        throw aborted;
+      if (error?.name === 'AbortError' || requestController.signal.aborted) {
+        // A request from a previous view may finish after navigation. Keep that
+        // stale promise pending so its catch handler cannot overwrite the new
+        // screen with a misleading error message.
+        return new Promise(() => {});
       }
       throw error;
     }
@@ -45,10 +47,8 @@
       throw new Error('sessao expirada');
     }
     const data = await res.json().catch(() => {
-      if (viewController.signal.aborted) {
-        const aborted = new Error('request aborted');
-        aborted.name = 'AbortError';
-        throw aborted;
+      if (requestController.signal.aborted) {
+        return new Promise(() => {});
       }
       throw new Error(`Resposta inválida da API (HTTP ${res.status})`);
     });
