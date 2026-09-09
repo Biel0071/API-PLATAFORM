@@ -219,6 +219,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Operational capacity projection: names and counters only, never credentials.
   app.get('/system/ai-capacity', { schema: { tags: ['system'] } }, async () => {
+    const configuredKeyCount = (name: string): number => {
+      const prefix = name.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      const values = [process.env[`${prefix}_API_KEY`], process.env[`${prefix}_API_KEYS`]]
+        .filter(Boolean)
+        .flatMap((value) => String(value).split(/[,\n]/).map((item) => item.trim()).filter(Boolean));
+      return new Set(values).size;
+    };
     const providers = await Promise.all(registry.list().map(async (provider) => {
       const started = Date.now();
       try {
@@ -226,13 +233,15 @@ export async function buildApp(): Promise<FastifyInstance> {
         const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('provider probe timeout')), Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || 70_000)));
         const health = await Promise.race([provider.health(), timeout]);
         const models = await provider.models().catch(() => []);
-        return { name: provider.name, status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'), health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities };
+        const keyCount = configuredKeyCount(provider.name);
+        return { name: provider.name, status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'), health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, keyCount, credentials: keyCount ? 'configured' : 'not_configured' };
       } catch (error) {
         // A slow inference probe must not hide model discovery. A provider with
         // reachable models is degraded, not offline, until the real probe fails
         // for a reason other than timeout or cold start.
         const models = await provider.models().catch(() => []);
-        return { name: provider.name, status: models.length ? 'degraded' : 'offline', health: false, latencyMs: Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, error: error instanceof Error ? error.message : 'provider probe failed' };
+        const keyCount = configuredKeyCount(provider.name);
+        return { name: provider.name, status: models.length ? 'degraded' : 'offline', health: false, latencyMs: Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, keyCount, credentials: keyCount ? 'configured' : 'not_configured', error: error instanceof Error ? error.message : 'provider probe failed' };
       }
     }));
     const queues = await queueStats().catch(() => []);
