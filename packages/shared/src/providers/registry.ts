@@ -268,6 +268,7 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
         visionModel: env.OLLAMA_VISION_MODEL,
         maxParallel: env.OLLAMA_NUM_PARALLEL ? Number(env.OLLAMA_NUM_PARALLEL) : undefined,
         timeoutMs: env.OLLAMA_TIMEOUT_MS ? Number(env.OLLAMA_TIMEOUT_MS) : undefined,
+        healthTimeoutMs: env.OLLAMA_HEALTH_TIMEOUT_MS ? Number(env.OLLAMA_HEALTH_TIMEOUT_MS) : undefined,
       }),
     );
   }

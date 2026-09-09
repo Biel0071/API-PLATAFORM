@@ -32,6 +32,7 @@ export interface OllamaConfig {
    * folga real quando 2+ geracoes concorrentes deixam cada uma mais lenta.
    */
   timeoutMs?: number;
+  healthTimeoutMs?: number;
 }
 
 /**
@@ -349,7 +350,7 @@ export class OllamaProvider extends BaseProvider {
       const data = await this.http<any>(this.url('/api/generate'), {
         method: 'POST',
         body: { model, prompt: 'ok', stream: false, keep_alive: -1, options: { num_predict: 1 } },
-        timeoutMs: 20_000,
+        timeoutMs: this.config.healthTimeoutMs ?? 20_000,
       });
       const ok = typeof data?.response === 'string';
       return { ok, latencyMs: Date.now() - start, message: ok ? undefined : 'modelo nao gerou resposta' };
