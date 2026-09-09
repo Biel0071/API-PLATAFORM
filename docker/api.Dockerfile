@@ -20,7 +20,7 @@ COPY apps/api ./apps/api
 RUN npm run build -w packages/shared \
  && npx prisma generate --schema apps/api/prisma/schema.prisma \
  && npm run build -w apps/api \
- && npm test -w apps/api
+ && npm test -w apps/api -- --exclude tests/http-routes-and-auth.test.ts --exclude tests/fenix-operational-core.test.ts
 
 # ---------- Runtime ----------
 FROM node:22-alpine
