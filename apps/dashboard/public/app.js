@@ -572,7 +572,7 @@
             const cfg = configByName[name];
             return [
               `<strong>${esc(name)}</strong>`, cfg ? badge(cfg.enabled, 'ativo', 'desativado') : '<span class="muted">.env/nao salvo</span>',
-              live ? badge(live.health.ok) : badge(false, 'online', 'nao registrado'),
+              live ? badge(live.health?.ok || live.models?.length > 0, 'online', live.health?.ok || live.models?.length > 0 ? 'online' : 'indisponivel') : badge(false, 'online', 'nao registrado'),
               live?.health?.latencyMs != null ? fmtMs(live.health.latencyMs) : '—',
               esc(live?.capabilities?.join(', ') || '—'), live?.models?.length ?? 0,
               `<button class="ghost" data-edit-provider="${name}">Editar</button> <button class="ghost" data-test-provider="${name}" ${live ? '' : 'disabled'}>Testar</button>`,
@@ -677,7 +677,7 @@
         content().innerHTML = `<h1>Playground de IA</h1><p class="error">Erro ao carregar: ${esc(err.message)}</p>`;
         return;
       }
-      const online = providers.filter((p) => p.health.ok && p.capabilities.includes('chat'));
+        const online = providers.filter((p) => (p.health?.ok || p.models?.length > 0) && p.capabilities.includes('chat'));
       content().innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
           <div>
