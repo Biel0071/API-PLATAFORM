@@ -290,6 +290,18 @@ export class ExecutionGateway {
     tracer.event('finish', 'intent_classifier', { mode, confidence: intent.confidence });
     const userPrompt = typeof payload.prompt === 'string' ? payload.prompt : messages.filter((m: any) => m.role === 'user').map((m: any) => m.content).join('\n');
     const classification = TaskClassifier.classify(messages, { tools: payload.tools });
+    const requestedMode = payload.execution_mode || payload.executionMode || 'adaptive';
+    const strategy = requestedMode === 'single'
+      ? 'single'
+      : requestedMode === 'parallel' || requestedMode === 'ensemble'
+        ? requestedMode
+        : classification.complexityScore <= 30
+          ? 'single'
+          : classification.complexityScore <= 60
+            ? 'single_with_refinement'
+            : classification.complexityScore <= 80
+              ? 'bounded_parallel'
+              : 'ensemble_with_judge';
     const optimization = PromptOptimizer.optimize({
       originalPrompt: userPrompt,
       context: typeof payload.context === 'string' ? payload.context : undefined,
@@ -312,6 +324,7 @@ export class ExecutionGateway {
     ctx.metadata = {
       ...ctx.metadata,
       classification,
+      strategy: { requestedMode, selected: strategy, maxAgents: classification.estimatedAgents },
       promptOptimization: {
         promptVersion: optimization.promptVersion,
         optimizerVersion: optimization.optimizerVersion,
