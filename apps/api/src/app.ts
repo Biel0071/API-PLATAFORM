@@ -228,7 +228,11 @@ export async function buildApp(): Promise<FastifyInstance> {
         const models = await provider.models().catch(() => []);
         return { name: provider.name, status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'), health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities };
       } catch (error) {
-        return { name: provider.name, status: 'offline', health: false, latencyMs: Date.now() - started, models: [], capabilities: provider.capabilities, error: error instanceof Error ? error.message : 'provider probe failed' };
+        // A slow inference probe must not hide model discovery. A provider with
+        // reachable models is degraded, not offline, until the real probe fails
+        // for a reason other than timeout or cold start.
+        const models = await provider.models().catch(() => []);
+        return { name: provider.name, status: models.length ? 'degraded' : 'offline', health: false, latencyMs: Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, error: error instanceof Error ? error.message : 'provider probe failed' };
       }
     }));
     const queues = await queueStats().catch(() => []);
