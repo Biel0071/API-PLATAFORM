@@ -4,20 +4,25 @@ import { fail } from '@api-platform/shared';
 import { execute, registry, reloadRegistry } from '../../services/ai.service';
 import { listProviderConfigs, saveProviderConfig } from '../../services/provider-config.service';
 import { prisma } from '../../lib/prisma';
+import { providerHealthState } from '../../services/health-check.service';
 
 export async function providersRoutes(secured: FastifyInstance): Promise<void> {
   // Providers + health + modelos
   secured.get('/providers', { schema: { tags: ['admin'] } }, async () => {
     const providers = await Promise.all(
       registry.list().map(async (p) => {
-        const health = await p.health();
+        const measured = providerHealthState.get(p.name);
+        const health = await Promise.race([
+          p.health(),
+          new Promise<{ ok: boolean; message: string }>((resolve) => setTimeout(() => resolve({ ok: false, message: 'probe em andamento' }), 5_000)),
+        ]).catch(() => ({ ok: false, message: 'probe indisponivel' }));
         let models: unknown[] = [];
         try {
           models = await p.models();
         } catch {
           /* provider offline */
         }
-        return { name: p.name, capabilities: p.capabilities, health, models };
+        return { name: p.name, capabilities: p.capabilities, health: measured && measured.status === 'healthy' ? { ...health, ok: true, latencyMs: measured.latency } : health, models };
       }),
     );
     return { success: true, defaults: registry.getDefaults(), providers };
