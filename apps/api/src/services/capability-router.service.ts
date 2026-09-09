@@ -58,13 +58,7 @@ export class CapabilityRouterService {
       }
     }
 
-    return {
-      providerId: 'ollama',
-      model: req.model || 'llama3:latest',
-      qualityScore: 0.85,
-      estimatedLatencyMs: 500,
-      estimatedCost: 0.0
-    };
+    throw new Error(`No healthy provider available for capability: ${req.capability}`);
   }
 
   private async checkProviderHealth(providerId: string): Promise<boolean> {
@@ -80,7 +74,7 @@ export class CapabilityRouterService {
   private getDefaultModelForProvider(providerId: string, capability: string): string {
     if (providerId === 'groq') return 'llama-3.3-70b-versatile';
     if (providerId === 'openrouter') return 'meta-llama/llama-3.1-70b-instruct';
-    if (providerId === 'ollama') return 'llama3:latest';
+    if (providerId === 'ollama') return 'qwen2.5:3b';
     if (providerId === 'comfyui') return 'sdxl_turbo';
     if (providerId === 'whisper') return 'whisper-large-v3';
     return 'default';
@@ -102,12 +96,11 @@ export class CapabilityRouterService {
         resolvedProvider: match.providerId,
         resolvedModel: match.model
       };
-    } catch {
-      return {
-        text: `[Fallback Response] Processado via ${match.providerId}`,
-        resolvedProvider: match.providerId,
-        resolvedModel: match.model
-      };
+    } catch (error) {
+      // Never manufacture a response when every real provider failed. Callers
+      // must receive the operational error so they can retry or choose another
+      // configured provider.
+      throw error;
     }
   }
 }
