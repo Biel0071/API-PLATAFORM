@@ -289,8 +289,37 @@ export class ExecutionGateway {
     tracer.event('finish', 'intent_classifier', { mode, confidence: intent.confidence });
     const userPrompt = typeof payload.prompt === 'string' ? payload.prompt : messages.filter((m: any) => m.role === 'user').map((m: any) => m.content).join('\n');
     const classification = TaskClassifier.classify(messages, { tools: payload.tools });
-    const optimization = PromptOptimizer.optimize({ originalPrompt: userPrompt, taskType: classification.taskType });
-    ctx.metadata = { ...ctx.metadata, classification, promptOptimization: { promptVersion: optimization.promptVersion, optimizerVersion: optimization.optimizerVersion, estimatedTokens: optimization.estimatedTokens } };
+    const optimization = PromptOptimizer.optimize({
+      originalPrompt: userPrompt,
+      context: typeof payload.context === 'string' ? payload.context : undefined,
+      taskType: classification.taskType,
+      constraints: Array.isArray(payload.constraints) ? payload.constraints : undefined,
+    });
+    const adaptive = payload.execution_mode === 'adaptive' || payload.executionMode === 'adaptive' || payload.execution_mode === undefined;
+    const executionPayload = adaptive && optimization.originalPrompt
+      ? {
+          ...payload,
+          prompt: typeof payload.prompt === 'string' ? optimization.optimizedPrompt : payload.prompt,
+          messages: messages.map((message: any, index: number) => {
+            const isLastUser = message.role === 'user' && index === messages.map((m: any) => m.role).lastIndexOf('user');
+            return isLastUser && typeof message.content === 'string'
+              ? { ...message, content: optimization.optimizedPrompt }
+              : message;
+          }),
+        }
+      : payload;
+    ctx.metadata = {
+      ...ctx.metadata,
+      classification,
+      promptOptimization: {
+        promptVersion: optimization.promptVersion,
+        optimizerVersion: optimization.optimizerVersion,
+        estimatedTokens: optimization.estimatedTokens,
+        applied: adaptive && Boolean(optimization.originalPrompt),
+        originalPrompt: optimization.originalPrompt,
+        optimizedPrompt: optimization.optimizedPrompt,
+      },
+    };
     
     // 3. Complexity (only if WORKFLOW)
     if (mode === ExecutionMode.WORKFLOW) {
@@ -303,7 +332,7 @@ export class ExecutionGateway {
     
     // 4. Dispatch Policy
     tracer.event('start', 'dispatcher');
-    ctx.dispatch = ExecutionDispatcher.dispatch(payload, ctx);
+    ctx.dispatch = ExecutionDispatcher.dispatch(executionPayload, ctx);
     tracer.event('finish', 'dispatcher', { transport: ctx.dispatch.transport });
     
     // Update transport based on dispatch policy
@@ -312,7 +341,7 @@ export class ExecutionGateway {
     // 5. Execution
     tracer.event('start', 'executor', { transport: ctx.decision.transport });
     const executor = ExecutorFactory.getExecutor(ctx.decision.transport);
-    const rawResponse = await executor.execute(ctx, payload);
+    const rawResponse = await executor.execute(ctx, executionPayload);
     tracer.event('finish', 'executor');
     
     // Intercept Tool Calls from APILayer
@@ -323,7 +352,7 @@ export class ExecutionGateway {
       if (apiLayerToolCalls.length > 0) {
         console.log('[GATEWAY] Interceptando chamada de ferramenta da APILayer:', apiLayerToolCalls.map((t: any) => t.name));
         
-        const newMessages = [...payload.messages];
+        const newMessages = [...executionPayload.messages];
         // Append assistant's tool calls
         newMessages.push({ 
           role: 'assistant', 
@@ -338,7 +367,7 @@ export class ExecutionGateway {
         }
         
         // Execute again with tool results
-        const followupPayload = { ...payload, messages: newMessages };
+        const followupPayload = { ...executionPayload, messages: newMessages };
         const followupResponse = await executor.execute(ctx, followupPayload);
         
         tracer.startComposer();
