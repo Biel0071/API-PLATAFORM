@@ -3,8 +3,14 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { cacheService } from '../../services/cache.service';
 import { queueStats } from '../../services/queue.service';
+import { registryProm } from '../../metrics';
 
 export async function observabilityRoutes(secured: FastifyInstance): Promise<void> {
+  secured.get('/metrics', { schema: { tags: ['admin'] } }, async (_req, reply) => {
+    reply.header('content-type', registryProm.contentType);
+    return registryProm.metrics();
+  });
+
   // Logs
   secured.get('/logs', { schema: { tags: ['admin'] } }, async (req) => {
     const query = z

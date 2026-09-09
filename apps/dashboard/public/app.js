@@ -1469,7 +1469,7 @@
 
   pages.metrics = async () => {
     try {
-      const res = await fetch(API + '/metrics', { headers: { authorization: `Bearer ${token()}` } });
+      const res = await fetch(API + '/admin/metrics', { headers: { authorization: `Bearer ${token()}` } });
       if (!res.ok) throw new Error('Métricas indisponíveis (HTTP ' + res.status + ')');
       const text = await res.text();
       if (!text.includes('# HELP')) throw new Error('O proxy não retornou métricas Prometheus');
