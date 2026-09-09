@@ -27,6 +27,13 @@ const common = {
   /** Nota minima exigida antes de persistir/enviar o resultado. */
   minQuality: z.number().int().min(0).max(100).optional().default(90),
   strictQuality: z.boolean().optional().default(true),
+  /** Configuração opcional do orquestrador adaptativo. */
+  execution_mode: z.enum(['single', 'parallel', 'ensemble', 'adaptive']).optional().default('adaptive'),
+  strategy: z.string().min(1).max(80).optional(),
+  max_agents: z.number().int().min(1).max(16).optional(),
+  max_refinements: z.number().int().min(0).max(5).optional(),
+  quality_threshold: z.number().min(0).max(100).optional(),
+  budget: z.number().int().min(1).max(1_000_000).optional(),
 };
 
 export const textSchema = z.object({
