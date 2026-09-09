@@ -9,11 +9,17 @@ export async function refineResponse(originalTask: string, optimizedPrompt: stri
   const threshold = Number(options.qualityThreshold ?? process.env.QUALITY_THRESHOLD ?? 80);
   let response = initial;
   let refinements = 0;
+  let consumedTokens = 0;
   let qualityScore = JudgeService.evaluate(originalTask, optimizedPrompt, [{ response }]).qualityScore;
   while (qualityScore < threshold && refinements < limit) {
     if (options.budgetTokens !== undefined && options.budgetTokens <= 0) return { response, refinements, qualityScore, stoppedReason: 'budget_exhausted' };
+    const responseTokens = Math.max(1, Math.ceil(JSON.stringify(response ?? '').length / 4));
+    if (options.budgetTokens !== undefined && consumedTokens + responseTokens >= options.budgetTokens) {
+      return { response, refinements, qualityScore, stoppedReason: 'budget_exhausted' };
+    }
     response = await execute(`${optimizedPrompt}\n\nREFINE the previous answer for correctness and completeness:\n${typeof response === 'string' ? response : JSON.stringify(response)}`);
     refinements += 1;
+    consumedTokens += responseTokens;
     qualityScore = JudgeService.evaluate(originalTask, optimizedPrompt, [{ response }]).qualityScore;
   }
   return { response, refinements, qualityScore, stoppedReason: qualityScore >= threshold ? 'quality_threshold' : 'max_refinements' };
