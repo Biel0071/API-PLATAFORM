@@ -19,6 +19,7 @@ import { apiLayerTools, APILayerRegistry } from './apilayer.registry';
 import crypto from 'crypto';
 import { TaskClassifier } from './task-classifier.service';
 import { PromptOptimizer } from './prompt-optimizer.service';
+import { rememberExecutionSuccess } from './execution-memory.service';
 
 export interface Executor {
   execute(ctx: ExecutionContext, input: any): Promise<ProviderResponse<any>>;
@@ -390,6 +391,25 @@ export class ExecutionGateway {
     if (ctx.metrics) {
       ctx.metrics.totalLatency = Date.now() - (ctx.startTime || Date.now());
       ctx.metrics.cacheHit = ctx.cacheHit !== 'MISS';
+    }
+    // Learn only from successful, completed executions. The memory service hashes
+    // request context and stores aggregate route statistics, never the prompt text.
+    if (!stream && response && !('stream' in response)) {
+      const routeProvider = String((response as any).provider || (ctx.metrics as any)?.provider || 'unknown');
+      const routeModel = String((response as any).model || model || 'auto');
+      const totalTokens = Number((response as any).tokens?.total || 0);
+      void rememberExecutionSuccess(
+        'chat',
+        { messages, taskType: classification.taskType, strategy: payload.strategy || 'adaptive', model },
+        { provider: routeProvider, model: routeModel },
+        // Until a judge is requested, a successful provider response is a neutral
+        // quality observation; it must not be recorded as a perfect score.
+        Number(payload.quality_threshold != null ? payload.quality_threshold : 50),
+        Number(ctx.metrics?.totalLatency || Date.now() - (ctx.startTime || Date.now())),
+        tenant,
+        payload.projectId,
+      ).catch(() => undefined);
+      ctx.metadata = { ...ctx.metadata, learning: { recorded: true, tokens: totalTokens } };
     }
     tracer.event('finish', 'gateway');
     
