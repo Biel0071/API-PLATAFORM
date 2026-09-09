@@ -12,7 +12,9 @@ COPY packages/sdk-js/package.json packages/sdk-js/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 
-RUN npm install --workspaces --include-workspace-root
+# The lockfile is committed; deterministic CI install avoids resolver work and
+# prevents long, non-reproducible deploy jobs on the VPS.
+RUN npm ci --workspaces --include-workspace-root
 
 COPY packages ./packages
 COPY apps/api ./apps/api
