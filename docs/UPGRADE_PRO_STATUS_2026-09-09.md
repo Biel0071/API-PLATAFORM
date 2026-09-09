@@ -1,0 +1,27 @@
+# Upgrade Pro — Status de produção
+
+Data: 2026-09-09
+
+## Arquitetura atual
+
+A API Platform mantém Fastify, `ProviderRegistry`, fallback por provider, BullMQ, Redis, PostgreSQL, memória de execução e métricas Prometheus. O frontend canônico permanece em `apps/dashboard/public/`. O FÊNIX usa sua própria API, Redis, PostgreSQL, Qdrant e Ollama.
+
+## Alterações aplicadas
+
+- Corrigida a estimativa de tokens em `ComplexityAnalyzer` e `FastIntentClassifier`; ambos agora usam `estimatePayloadTokens`.
+- O roteamento adaptativo passa a receber complexidade real em vez de zero constante.
+- API e worker foram reconstruídos na VPS a partir do commit `52df23f`.
+- Redis do FÊNIX foi recriado com o segredo montado atual; a API FÊNIX voltou a conectar em PostgreSQL, Redis e Qdrant.
+- Health-check de container foi ajustado para uma sonda de liveness leve (`/api/oidc/config`), enquanto `/health` continua sendo a sonda profunda.
+
+## Estado validado
+
+- API Platform, dashboard, worker, PostgreSQL e Redis: saudáveis.
+- FÊNIX Enterprise API: container saudável e porta 4400 aberta.
+- Ollama: saudável; modelo instalado: `qwen2.5:3b`.
+- Providers cloud: sem credenciais configuradas; não são anunciados como disponíveis.
+- Testes da API no build remoto: 11 arquivos, 45 testes aprovados.
+
+## Limitações atuais
+
+A sonda profunda `/health` do FÊNIX ainda pode retornar `503` por exceder o limite de probes internos, embora o serviço esteja operacional e o liveness esteja verde. A expansão para providers cloud depende de credenciais reais inseridas pelo administrador. Refinamento, judge e execução paralela avançada ainda exigem implementação e testes dedicados antes de declarar o Upgrade Pro completo.
