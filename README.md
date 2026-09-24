@@ -144,3 +144,14 @@ scripts/       install.ps1 (Windows), install.sh, deploy-vps.sh
 ## Licença
 
 MIT
+
+## Integração com o Fênix OS
+
+O Fênix usa o canal assíncrono da API Platform para manter a conversa responsiva quando a capacidade de inferência está ocupada:
+
+1. Envie `POST /v1/text` com `prompt` e `execution: "async"` usando uma API key com escopo de texto.
+2. A resposta HTTP 202 contém `jobId`. Esse aceite confirma o enfileiramento, não a geração de uma resposta.
+3. Consulte `GET /v1/jobs/:id` até o estado `completed` ou `failed`. Leia `result` ou `error` conforme o estado.
+4. O worker escolhe provedores configurados e respeita os limites de concorrência; a disponibilidade real de cada provedor pode ser consultada em `GET /v1/health`.
+
+O projeto pode ser aberto no Project Kernel do Fênix para leitura, edição, revisão do diff, commit, push e deploy controlado.
