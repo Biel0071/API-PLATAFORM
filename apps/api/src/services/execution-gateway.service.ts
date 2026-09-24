@@ -90,8 +90,6 @@ export class DirectExecutor implements Executor {
         overrideModel = 'auto';
       } else if (providerName === 'anthropic' && isOpenAI) {
         overrideModel = 'auto';
-      } else if (providerName === 'ollama') {
-        overrideModel = 'auto';
       }
 
       const providerInput = {

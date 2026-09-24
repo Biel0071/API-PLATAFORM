@@ -104,7 +104,7 @@ services:
     healthcheck:
       # Um processo vivo pode estar com o event loop travado. O worker grava
       # este heartbeat a cada 30s; se envelhecer, o Docker reinicia o container.
-      test: ['CMD', 'node', '-e', "const fs=require('fs');const p='/tmp/apiplatform-worker-heartbeat';const age=Date.now()-fs.statSync(p).mtimeMs;if(age>90000)process.exit(1)"]
+      test: ['CMD', 'node', '-e', "const fs=require('fs');const p='/tmp/apiplatform-worker-heartbeat';try{const age=Date.now()-fs.statSync(p).mtimeMs;process.exit(age<=90000?0:1)}catch(e){process.exit(1)}"]
       interval: 15s
       timeout: 5s
       retries: 4
