@@ -227,22 +227,21 @@ export async function buildApp(): Promise<FastifyInstance> {
       return new Set(values).size;
     };
     const providers = await Promise.all(registry.list().map(async (provider) => {
-      const started = Date.now();
-      try {
-        // Ollama health performs one real token generation; allow cold model load.
-        const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('provider probe timeout')), Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || 70_000)));
-        const health = await Promise.race([provider.health(), timeout]);
-        const models = await provider.models().catch(() => []);
-        const keyCount = configuredKeyCount(provider.name);
-        return { name: provider.name, status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'), health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, keyCount, credentials: keyCount ? 'configured' : 'not_configured' };
-      } catch (error) {
-        // A slow inference probe must not hide model discovery. A provider with
-        // reachable models is degraded, not offline, until the real probe fails
-        // for a reason other than timeout or cold start.
-        const models = await provider.models().catch(() => []);
-        const keyCount = configuredKeyCount(provider.name);
-        return { name: provider.name, status: models.length ? 'degraded' : 'offline', health: false, latencyMs: Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, keyCount, credentials: keyCount ? 'configured' : 'not_configured', error: error instanceof Error ? error.message : 'provider probe failed' };
-      }
+      const measured = providerHealthState.get(provider.name);
+      const fresh = Boolean(measured && Date.now() - measured.lastCheck < 120_000);
+      const models = await provider.models().catch(() => []);
+      const keyCount = configuredKeyCount(provider.name);
+      const health = fresh && measured?.status === 'healthy';
+      return {
+        name: provider.name,
+        status: fresh ? measured!.status : (models.length ? 'degraded' : 'offline'),
+        health,
+        latencyMs: fresh ? measured!.latency : null,
+        models: models.map((model) => model.id),
+        capabilities: provider.capabilities,
+        keyCount,
+        credentials: keyCount ? 'configured' : 'not_configured',
+      };
     }));
     const queues = await queueStats().catch(() => []);
     const queuedRequests = queues.reduce((sum, queue) => sum + Number(queue.waiting || 0), 0);

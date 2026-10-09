@@ -333,27 +333,24 @@ export class OllamaProvider extends BaseProvider {
   }
 
   /**
-   * Health real: faz uma inferencia minima (num_predict:1) no modelo default,
-   * em vez de so listar /api/tags. Listar tags responde "ok" mesmo com o
-   * runtime de inferencia travado/sem modelo carregado - falso positivo que
-   * mascarava indisponibilidade. Aqui, se o modelo nao gera nem 1 token, o
-   * health falha de verdade. keep_alive mantem o modelo quente apos o probe.
+   * Health checks endpoint reachability and model installation only. Generation
+   * is deliberately left to explicit requests so status polling cannot occupy
+   * the VPS CPU or the model's single inference slot.
    */
   override async health(): Promise<HealthStatus> {
     const start = Date.now();
     try {
-      const model = this.config.defaultModel;
-      if (!model) {
-        const models = await this.models();
-        return { ok: models.length > 0, latencyMs: Date.now() - start, modelCount: models.length };
-      }
-      const data = await this.http<any>(this.url('/api/generate'), {
-        method: 'POST',
-        body: { model, prompt: 'ok', stream: false, keep_alive: -1, options: { num_predict: 1 } },
-        timeoutMs: this.config.healthTimeoutMs ?? 20_000,
-      });
-      const ok = typeof data?.response === 'string';
-      return { ok, latencyMs: Date.now() - start, message: ok ? undefined : 'modelo nao gerou resposta' };
+      const models = await this.models();
+      const configuredModel = this.config.defaultModel;
+      const available = configuredModel
+        ? models.some((model) => model.id === configuredModel)
+        : models.length > 0;
+      return {
+        ok: available,
+        latencyMs: Date.now() - start,
+        modelCount: models.length,
+        message: available ? undefined : (configuredModel ? 'configured model not found' : 'no models installed'),
+      };
     } catch (err) {
       return { ok: false, latencyMs: Date.now() - start, message: err instanceof Error ? err.message : String(err) };
     }
