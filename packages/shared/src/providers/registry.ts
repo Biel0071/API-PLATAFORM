@@ -302,6 +302,7 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     registry.register(
       new ClaudeProvider({
         apiKey: env.ANTHROPIC_API_KEY,
+        baseUrl: env.ANTHROPIC_BASE_URL,
         defaultModel: env.CLAUDE_DEFAULT_MODEL ?? 'claude-3-opus-20240229',
       }),
     );

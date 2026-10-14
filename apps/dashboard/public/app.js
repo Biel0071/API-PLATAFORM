@@ -547,7 +547,7 @@
         return;
       }
       const configByName = Object.fromEntries(configs.map((c) => [c.name, c]));
-      const choices = ['ollama', 'groq', 'gemini', 'openrouter', 'huggingface', 'cloudflare', 'lmstudio', 'comfyui', 'forge', 'invokeai'];
+      const choices = ['openai', 'anthropic', 'xai', 'gemini', 'groq', 'openrouter', 'ollama', 'huggingface', 'cloudflare', 'lmstudio', 'comfyui', 'forge', 'invokeai'];
       content().innerHTML = `
         <h1>Providers</h1>
         <p class="muted">Cadastre as credenciais aqui. Segredos sao criptografados e nunca retornam pela API.</p>
@@ -560,6 +560,7 @@
             <label>Account ID (Cloudflare) <input id="p-account" /></label>
             <label>Modelo padrao <input id="p-model" placeholder="llama-3.1-8b-instant" /></label>
             <label>Modelo embeddings <input id="p-embed" /></label>
+            <label class="inline-check"><input id="p-default-chat" type="checkbox" /> Provider padrao para chat e tarefas do Fênix</label>
             <label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Ativo</label>
           </div>
           <div class="toolbar"><button id="p-save">Salvar e ativar</button><span id="p-result" class="muted"></span></div>
@@ -589,6 +590,7 @@
         $('#p-account').value = cfg?.settings?.accountId || '';
         $('#p-model').value = cfg?.settings?.defaultModel || '';
         $('#p-embed').value = cfg?.settings?.embedModel || '';
+        $('#p-default-chat').checked = cfg?.settings?.defaultChat ?? false;
         $('#p-enabled').checked = cfg?.enabled ?? true;
       };
       $('#p-name').addEventListener('change', (e) => fillProvider(e.target.value));
@@ -598,6 +600,7 @@
         try {
           const data = await api('/admin/provider-configs', { method: 'POST', body: {
             name: $('#p-name').value, enabled: $('#p-enabled').checked,
+            defaultChat: $('#p-default-chat').checked,
             baseUrl: $('#p-url').value.trim(), apiKey: $('#p-key').value.trim(),
             accountId: $('#p-account').value.trim(), defaultModel: $('#p-model').value.trim(),
             embedModel: $('#p-embed').value.trim(),

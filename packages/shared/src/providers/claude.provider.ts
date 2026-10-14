@@ -14,6 +14,7 @@ import {
 
 export interface ClaudeConfig {
   apiKey: string;
+  baseUrl?: string;
   defaultModel?: string;
 }
 
@@ -93,7 +94,8 @@ export class ClaudeProvider extends BaseProvider {
     if (input.tools !== undefined) body.tools = input.tools;
     if (input.toolChoice !== undefined) body.tool_choice = input.toolChoice;
 
-    const data = await this.http<any>('https://api.anthropic.com/v1/messages', {
+    const baseUrl = (this.config.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '');
+    const data = await this.http<any>(`${baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
         'x-api-key': this.config.apiKey,

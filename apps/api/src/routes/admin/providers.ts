@@ -29,13 +29,14 @@ export async function providersRoutes(secured: FastifyInstance): Promise<void> {
 
   secured.post('/provider-configs', { schema: { tags: ['admin'] } }, async (req) => {
     const body = z.object({
-      name: z.enum(['ollama', 'groq', 'gemini', 'openrouter', 'huggingface', 'cloudflare', 'lmstudio', 'comfyui', 'forge', 'invokeai']),
+      name: z.enum(['openai', 'anthropic', 'xai', 'ollama', 'groq', 'gemini', 'openrouter', 'huggingface', 'cloudflare', 'lmstudio', 'comfyui', 'forge', 'invokeai']),
       enabled: z.boolean().default(true),
-      baseUrl: z.string().url().optional().or(z.literal('')),
-      apiKey: z.string().optional(),
-      accountId: z.string().optional(),
-      defaultModel: z.string().optional(),
-      embedModel: z.string().optional(),
+      defaultChat: z.boolean().optional(),
+      baseUrl: z.string().trim().max(2_048).url().optional().or(z.literal('')),
+      apiKey: z.string().max(8_192).optional(),
+      accountId: z.string().trim().max(256).optional(),
+      defaultModel: z.string().trim().max(256).optional(),
+      embedModel: z.string().trim().max(256).optional(),
     }).parse(req.body);
     await saveProviderConfig(body);
     const updated = await reloadRegistry();
@@ -55,11 +56,14 @@ export async function providersRoutes(secured: FastifyInstance): Promise<void> {
 
   secured.post('/test-text', { schema: { tags: ['admin'] } }, async (req) => {
     const body = z.object({
-      prompt: z.string().min(1).max(20000),
+      prompt: z.string().trim().min(1).max(500),
       provider: z.string().optional(),
       model: z.string().optional(),
+      maxTokens: z.number().int().min(1).max(32).optional().default(16),
+      cache: z.boolean().optional().default(false),
+      strictQuality: z.boolean().optional().default(false),
     }).parse(req.body);
-    return execute('chat', body, (provider) => provider.generateText(body) as any, { cache: false });
+    return execute('chat', body, (provider) => provider.generateText(body) as any, { cache: body.cache });
   });
 }
 

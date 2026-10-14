@@ -21,6 +21,7 @@ import { TaskClassifier } from './task-classifier.service';
 import { PromptOptimizer } from './prompt-optimizer.service';
 import { rememberExecutionSuccess } from './execution-memory.service';
 import { refineResponse } from './refinement.service';
+import { buildProviderCascade } from './provider-routing.service';
 
 export interface Executor {
   execute(ctx: ExecutionContext, input: any): Promise<ProviderResponse<any>>;
@@ -37,20 +38,13 @@ export class DirectExecutor implements Executor {
     let currentMessages = [...originalMessages];
     
     // Lista de fallback baseada na ordem configurada
-    let cascade = [...fallbackOrder];
-    
-    // Se o cliente especificou um provedor no modelo, tentamos ele primeiro
-    const modelParts = targetModel.split('/');
-    if (modelParts.length > 1 && cascade.includes(modelParts[0])) {
-      cascade = [modelParts[0], ...cascade.filter(p => p !== modelParts[0])];
-    } else if (targetModel.toLowerCase().includes('claude')) {
-      if (!cascade.includes('anthropic')) {
-        cascade = ['anthropic', ...cascade];
-      } else {
-        cascade = ['anthropic', ...cascade.filter(p => p !== 'anthropic')];
-      }
-    }
-    
+    const cascade = buildProviderCascade({
+      model: targetModel,
+      requestedProvider: input.provider,
+      defaultProvider: registry.getDefaults().chat,
+      fallbackOrder,
+      hasProvider: (name) => registry.has(name),
+    });
     const errors: any[] = [];
     
     for (const providerName of cascade) {
