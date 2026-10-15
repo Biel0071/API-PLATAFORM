@@ -534,85 +534,509 @@
     },
 
     async providers() {
-      content().innerHTML = '<h1>Providers</h1><p class="muted">Carregando conexoes...</p>';
-      let providers, defaults, configs;
+      const providerView = viewController;
+      content().innerHTML = '<h1>Provedores de IA</h1><p class="muted" role="status">Carregando conexões...</p>';
+      let providers, defaults, configs, connectionOptions, usageList = [], logList = [];
       try {
-        const [res1, res2] = await Promise.all([
-          api('/admin/providers'), api('/admin/provider-configs'),
+        const [res1, res2, res3, resUsage, resLogs] = await Promise.all([
+          api('/admin/providers'),
+          api('/admin/provider-configs'),
+          api('/admin/provider-oauth/options').catch(() => ({ options: {} })),
+          api('/admin/usage?days=7').catch(() => ({ usage: [] })),
+          api('/admin/logs?limit=250').catch(() => ({ logs: [] })),
         ]);
-        providers = res1.providers; defaults = res1.defaults; configs = res2.configs;
+        providers = res1.providers; defaults = res1.defaults; configs = res2.configs; connectionOptions = res3.options || {};
+        usageList = (resUsage && resUsage.usage) || [];
+        logList = (resLogs && resLogs.logs) || [];
       } catch (err) {
-        toast(err.message, 'error');
-        content().innerHTML = `<h1>Providers</h1><p class="error">Erro ao carregar providers: ${esc(err.message)}</p>`;
+        if (isViewStale(providerView)) return;
+        content().innerHTML = `<h1>Provedores de IA</h1><p class="error" role="alert">Erro ao carregar conexões: ${esc(err.message)}</p><button id="p-retry" class="ghost">Tentar novamente</button>`;
+        $('#p-retry').onclick = () => pages.providers();
         return;
       }
+      if (isViewStale(providerView)) return;
       const configByName = Object.fromEntries(configs.map((c) => [c.name, c]));
-      const choices = ['ollama', 'groq', 'gemini', 'openrouter', 'huggingface', 'cloudflare', 'lmstudio', 'comfyui', 'forge', 'invokeai'];
-      content().innerHTML = `
-        <h1>Providers</h1>
-        <p class="muted">Cadastre as credenciais aqui. Segredos sao criptografados e nunca retornam pela API.</p>
-        <div class="card section">
-          <h2>Conectar provider</h2>
-          <div class="form-grid">
-            <label>Provider <select id="p-name">${choices.map((name) => `<option value="${name}">${name}</option>`).join('')}</select></label>
-            <label>Endpoint / Base URL <input id="p-url" placeholder="https://..." /></label>
-            <label>API key / Token <input id="p-key" type="password" autocomplete="new-password" placeholder="deixe vazio para manter a atual" /></label>
-            <label>Account ID (Cloudflare) <input id="p-account" /></label>
-            <label>Modelo padrao <input id="p-model" placeholder="llama-3.1-8b-instant" /></label>
-            <label>Modelo embeddings <input id="p-embed" /></label>
-            <label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Ativo</label>
-          </div>
-          <div class="toolbar"><button id="p-save">Salvar e ativar</button><span id="p-result" class="muted"></span></div>
-        </div>
-        <p class="muted">Defaults: ${esc(JSON.stringify(defaults))}</p>
-        ${table(
-          ['Provider', 'Configurado', 'Status', 'Latencia', 'Capacidades', 'Modelos', 'Acoes'],
-          choices.map((name) => {
-            const live = providers.find((p) => p.name === name);
-            const cfg = configByName[name];
-            return [
-              `<strong>${esc(name)}</strong>`, cfg ? badge(cfg.enabled, 'ativo', 'desativado') : '<span class="muted">.env/nao salvo</span>',
-              live ? badge(live.health?.ok || live.models?.length > 0, 'online', live.health?.ok || live.models?.length > 0 ? 'online' : 'indisponivel') : badge(false, 'online', 'nao registrado'),
-              live?.health?.latencyMs != null ? fmtMs(live.health.latencyMs) : '—',
-              esc(live?.capabilities?.join(', ') || '—'), live?.models?.length ?? 0,
-              `<button class="ghost" data-edit-provider="${name}">Editar</button> <button class="ghost" data-test-provider="${name}" ${live ? '' : 'disabled'}>Testar</button>`,
-            ];
-          }),
-        )}`;
+      const catalog = [
+        ['openai', 'OpenAI', 'GPT · texto, visão e imagens', 'cloud'],
+        ['anthropic', 'Anthropic', 'Claude · texto e visão', 'cloud'],
+        ['xai', 'xAI', 'Grok · texto e visão', 'cloud'],
+        ['gemini', 'Google Gemini', 'Gemini · modelos multimodais', 'cloud'],
+        ['groq', 'Groq', 'Inferência de modelos abertos', 'cloud'],
+        ['openrouter', 'OpenRouter', 'Vários modelos em uma API', 'cloud'],
+        ['ollama', 'Ollama', 'Modelos no seu servidor', 'local'],
+        ['huggingface', 'Hugging Face', 'Modelos e inferência na nuvem', 'cloud'],
+        ['cloudflare', 'Cloudflare', 'Workers AI · inferência na nuvem', 'cloud'],
+        ['lmstudio', 'LM Studio', 'Servidor local de modelos', 'local'],
+        ['comfyui', 'ComfyUI', 'Workflows de geração de imagens', 'image'],
+        ['forge', 'Stable Diffusion Forge', 'Geração de imagens no seu servidor', 'image'],
+        ['invokeai', 'InvokeAI', 'Criação de imagens no seu servidor', 'image'],
+      ];
+      const choices = catalog.map(([name]) => name);
+      const details = Object.fromEntries(catalog.map(([name, title, description, kind]) => [name, { title, description, kind }]));
+      const defaultPortals = {
+        openai: {
+          portalUrl: 'https://platform.openai.com/api-keys',
+          models: ['gpt-4o', 'gpt-4o-mini', 'o1-preview', 'o1-mini'],
+        },
+        anthropic: {
+          portalUrl: 'https://console.anthropic.com/settings/keys',
+          models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+        },
+        gemini: {
+          portalUrl: 'https://aistudio.google.com/app/apikey',
+          models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp'],
+        },
+        xai: {
+          portalUrl: 'https://console.x.ai/',
+          models: ['grok-beta', 'grok-vision-beta'],
+        },
+        groq: {
+          portalUrl: 'https://console.groq.com/keys',
+          models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+        },
+        openrouter: {
+          portalUrl: 'https://openrouter.ai/keys',
+          models: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.3-70b-instruct'],
+        },
+        huggingface: {
+          portalUrl: 'https://huggingface.co/settings/tokens',
+          models: ['meta-llama/Llama-3.2-3B-Instruct', 'meta-llama/Llama-3.1-70B-Instruct'],
+        },
+        cloudflare: {
+          portalUrl: 'https://dash.cloudflare.com/?to=/:account/workers/ai',
+          models: ['@cf/meta/llama-3.1-8b-instruct', '@cf/meta/llama-3.1-70b-instruct'],
+        },
+        ollama: {
+          portalUrl: 'http://localhost:11434',
+          models: ['llama3.2', 'qwen2.5-coder', 'mistral', 'nomic-embed-text'],
+        },
+        lmstudio: {
+          portalUrl: 'http://localhost:1234',
+          models: ['local-model'],
+        },
+        comfyui: {
+          portalUrl: 'http://localhost:8188',
+          models: ['sd_xl_base_1.0.safetensors', 'flux1-schnell'],
+        },
+        forge: {
+          portalUrl: 'http://localhost:7860',
+          models: ['sd_xl_base_1.0.safetensors'],
+        },
+        invokeai: {
+          portalUrl: 'http://localhost:9090',
+          models: ['sdxl'],
+        },
+      };
+      const providerTitle = (name) => details[name]?.title || name;
+      const logo = (name) => `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${name}.svg" width="28" height="28" alt="" /></span>`;
+      const fmtTokens = (n) => {
+        if (!n || n <= 0) return '0 tokens';
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M tokens';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'k tokens';
+        return n + ' tokens';
+      };
+      const fmtCost = (c) => {
+        if (c == null) return 'Tarifa não configurada';
+        if (c === 0) return 'US$ 0.00';
+        if (c < 0.01) return '< US$ 0.01';
+        return 'US$ ' + Number(c).toFixed(2);
+      };
+      const now = Date.now();
+      const fiveHoursAgo = now - 5 * 3600 * 1000;
+      const getProviderUsage = (name) => {
+        const pLogs = (logList || []).filter(l => l.provider === name && new Date(l.createdAt).getTime() >= fiveHoursAgo);
+        const p5hCalls = pLogs.length;
+        const p5hTokens = pLogs.reduce((sum, l) => sum + (Number(l.totalTokens) || 0), 0);
+        const p5hCost = pLogs.reduce((sum, l) => sum + (Number(l.cost) || 0), 0);
 
-      const fillProvider = (name) => {
+        const pUsage = (usageList || []).filter(u => u.provider === name);
+        const p7dCalls = pUsage.reduce((sum, u) => sum + (Number(u.requests) || 0), 0);
+        const p7dTokens = pUsage.reduce((sum, u) => sum + (Number(u.totalTokens) || 0), 0);
+        const p7dCost = pUsage.reduce((sum, u) => sum + (Number(u.cost) || 0), 0);
+
+        return {
+          h5: { calls: p5hCalls, tokens: p5hTokens, cost: p5hCost },
+          d7: { calls: p7dCalls, tokens: p7dTokens, cost: p7dCost },
+        };
+      };
+      const defaultQuotas = {
+        groq: '6.000 TPM · 500.000 TPD (30 RPM)',
+        gemini: '1.000.000 TPM · 1.500 RPD (15 RPM)',
+        cloudflare: '10.000 RPD (60 RPM)',
+        openrouter: '40.000 TPM · 200 RPD (20 RPM)',
+        ollama: 'Local ilimitado (concorrência do host)',
+        openai: 'Tier da conta (TPM / RPD)',
+        anthropic: 'Tier da conta (TPM / RPD)',
+        xai: 'Tier da conta (TPM / RPD)',
+        huggingface: 'Tier da conta (inferência serverless)',
+        lmstudio: 'Local ilimitado',
+        comfyui: 'Local / GPU dedicada',
+        forge: 'Local / GPU dedicada',
+        invokeai: 'Local / GPU dedicada',
+      };
+      content().innerHTML = `
+        <section class="providers-page">
+          <div class="providers-header">
+            <div><h1>Provedores de IA</h1><p class="muted">Conecte suas contas e escolha os modelos para suas aplicações.</p></div>
+            <button id="p-add" aria-label="Adicionar provedor"><span class="provider-plus" aria-hidden="true">+</span> Adicionar provedor</button>
+          </div>
+          <div id="p-defaults" class="provider-defaults" aria-label="Provedores padrão"></div>
+          <section class="provider-section" aria-labelledby="p-connected-title"><div class="provider-section-heading"><h2 id="p-connected-title">Suas conexões</h2><span id="p-count" class="muted"></span></div><div id="p-connected" class="provider-grid"></div></section>
+          <section class="provider-section" aria-labelledby="p-catalog-title"><div class="provider-section-heading"><div><h2 id="p-catalog-title">Conectar uma conta</h2><p class="muted">Adicione uma API key ou conecte um servidor próprio.</p></div></div><div id="p-catalog" class="provider-grid"></div></section>
+          <p class="provider-security muted">Suas credenciais são criptografadas e nunca são exibidas após o cadastro.</p>
+        </section>
+        <dialog id="provider-dialog" class="provider-dialog" aria-labelledby="p-dialog-title" aria-describedby="p-dialog-description"></dialog>`;
+
+      const dialog = $('#provider-dialog');
+      let returnFocus;
+      let saving = false;
+      let providerDataGeneration = 0;
+      const renderCards = () => {
+        $('#p-defaults').innerHTML = Object.entries(defaults || {}).map(([capability, name]) => `<span>${esc({ chat: 'Chat', image: 'Imagens', embedding: 'Embeddings', vision: 'Visão', audio: 'Áudio' }[capability] || capability)} <strong>${esc(providerTitle(name))}</strong></span>`).join('');
+        const connected = choices.filter(name => configByName[name] || providers.some(p => p.name === name));
+        $('#p-count').textContent = `${connected.length} ${connected.length === 1 ? 'provedor configurado' : 'provedores configurados'}`;
+        const renderCard = (name) => {
+          const live = providers.find(p => p.name === name);
+          const cfg = configByName[name];
+          const configured = Boolean(cfg || live);
+          const online = live?.health?.ok === true;
+          const status = cfg?.oauthNeedsReauth ? ['warn', 'Nova autorização necessária'] : online ? ['ok', 'Online'] : live?.health?.ok === false ? ['error', 'Indisponível'] : cfg?.enabled === false ? ['muted', 'Desativado'] : configured ? ['warn', 'Verificar conexão'] : ['muted', 'Não conectado'];
+          const modelNames = (live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name).filter(Boolean);
+          const authLabel = cfg?.settings?.authMode === 'oauth' && cfg?.hasOAuth ? `<span class="provider-auth-label">Conta ${esc(name === 'gemini' ? 'Google' : 'Hugging Face')}</span>` : '';
+          return `<article class="provider-card" data-provider-card="${name}">
+            <div class="provider-card-heading">${logo(name)}<div><h3>${esc(providerTitle(name))}</h3><p>${esc(details[name].description)}</p></div></div>
+            <div class="provider-card-status"><span class="provider-status ${status[0]}"><span aria-hidden="true">●</span> ${status[1]}</span>${authLabel}${defaults?.chat === name ? '<span class="provider-default-label">Padrão de chat</span>' : ''}${online && live.health.latencyMs != null ? `<span class="muted">${fmtMs(live.health.latencyMs)}</span>` : ''}</div>
+            ${configured ? `<p class="provider-models" title="${esc(modelNames.join(', '))}">${modelNames.length ? `${modelNames.length} ${modelNames.length === 1 ? 'modelo' : 'modelos'} · ${esc(modelNames.slice(0, 2).join(', '))}` : cfg?.settings?.defaultModel ? `Modelo: ${esc(cfg.settings.defaultModel)}` : 'Nenhum modelo disponível'}</p>` : ''}
+            ${(() => {
+              const displayModels = modelNames.length > 0 ? modelNames : (defaultPortals[name]?.models || []);
+              return displayModels.length > 0 ? `
+            <div class="provider-card-model-tags" aria-label="Modelos suportados">
+              ${displayModels.slice(0, 3).map(m => `<span class="model-tag" title="${esc(m)}">${esc(m)}</span>`).join('')}
+              ${displayModels.length > 3 ? `<span class="model-tag-more">+${displayModels.length - 3}</span>` : ''}
+            </div>` : '';
+            })()}
+            ${(() => {
+              const usageData = getProviderUsage(name);
+              const quota = defaultQuotas[name];
+              return configured ? `
+            <div class="provider-usage-panel" aria-label="Uso de tokens da conta">
+              <div class="provider-usage-row">
+                <div class="provider-usage-item">
+                  <span class="usage-label">⏱️ Uso por hora (5h)</span>
+                  <span class="usage-tokens">${fmtTokens(usageData.h5.tokens)}</span>
+                  <small class="muted">${usageData.h5.calls} ${usageData.h5.calls === 1 ? 'chamada' : 'chamadas'} · ${fmtCost(usageData.h5.cost)}</small>
+                </div>
+                <div class="provider-usage-item">
+                  <span class="usage-label">📅 Uso semanal (7d)</span>
+                  <span class="usage-tokens">${fmtTokens(usageData.d7.tokens)}</span>
+                  <small class="muted">${usageData.d7.calls} ${usageData.d7.calls === 1 ? 'chamada' : 'chamadas'} · ${fmtCost(usageData.d7.cost)}</small>
+                </div>
+              </div>
+              ${quota ? `<div class="provider-quota-badge"><span>⚡ Limite da conta:</span> <strong>${esc(quota)}</strong></div>` : ''}
+            </div>` : (quota ? `<div class="provider-quota-badge" style="margin: 0.25rem 0;"><span>⚡ Quota estimada:</span> <strong>${esc(quota)}</strong></div>` : '');
+            })()}
+            <div class="provider-card-actions">
+              <button class="${configured ? 'ghost' : ''}" data-connect-provider="${name}">${configured ? 'Configurar' : 'Conectar conta'}<span class="sr-only"> ${esc(providerTitle(name))}</span></button>
+              ${(() => {
+                const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
+                return portalUrl ? `<a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">🌐 Portal ↗</a>` : '';
+              })()}
+              ${live ? `<button class="ghost" data-test-provider="${name}" aria-label="Testar conexão ${esc(providerTitle(name))}">Testar conexão</button>` : ''}
+              ${cfg?.hasOAuth ? `<button class="ghost" data-disconnect-oauth="${name}">Desconectar conta</button>` : ''}
+            </div>
+            <p class="provider-test-result" data-provider-result="${name}" role="status"></p>
+          </article>`;
+        };
+        $('#p-connected').innerHTML = connected.length ? connected.map(renderCard).join('') : '<div class="provider-empty"><h3>Sua primeira conexão começa aqui</h3><p class="muted">Escolha um provedor abaixo ou clique em + para adicionar.</p></div>';
+        $('#p-catalog').innerHTML = choices.filter(name => !connected.includes(name)).map(renderCard).join('') || '<p class="muted">Todos os provedores já foram adicionados. Gerencie suas conexões acima.</p>';
+      };
+      let flowPollTimer;
+      let flowGeneration = 0;
+      const stopOAuthPolling = () => { clearTimeout(flowPollTimer); flowGeneration++; };
+      const updateAuthFields = () => {
+        const name = $('#p-name').value;
+        const cloud = details[name].kind === 'cloud';
+        const selected = dialog.querySelector('input[name="provider-auth-mode"]:checked')?.value;
+        const mode = cloud ? (selected || $('#p-auth-mode').value || 'apiKey') : 'local';
         const cfg = configByName[name];
+        const hasApiKey = Boolean(cfg?.hasApiKey || (providers.some(p => p.name === name) && !cfg?.hasOAuth));
+        $('#p-auth-mode').value = mode;
+        $('#p-key-field').hidden = !cloud || mode !== 'apiKey';
+        $('#p-key').required = cloud && mode === 'apiKey' && !hasApiKey;
+        $('#p-account-field').hidden = name !== 'cloudflare';
+        $('#p-account').required = name === 'cloudflare' && mode === 'apiKey' && !providers.some(p => p.name === name);
+        $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth';
+        $('#p-google-oauth-actions').hidden = name !== 'gemini' || mode !== 'oauth';
+        const oauthAlreadyConnected = Boolean(cfg?.hasOAuth && !cfg?.oauthNeedsReauth);
+        $('#p-save').disabled = mode === 'oauth' && !oauthAlreadyConnected;
+        $('#p-save').textContent = mode === 'oauth' ? 'Salvar ajustes' : 'Salvar conexão';
+      };
+      const fillProvider = (name) => {
+        stopOAuthPolling();
+        $('#p-hf-start').disabled = false;
+        $('#p-hf-flow').hidden = true;
+        $('#p-hf-start-status').textContent = '';
+        const cfg = configByName[name];
+        const live = providers.find(p => p.name === name);
+        const cloud = details[name].kind === 'cloud';
+        const connection = connectionOptions[name] || {};
+        const oauthEnabled = Boolean(connection.oauth?.enabled);
+        const authMode = cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : 'apiKey')) : 'local';
+        const hasApiKey = Boolean(cfg?.hasApiKey || (live && !cfg?.hasOAuth));
         $('#p-name').value = name;
+        $('#p-auth-mode').value = authMode;
         $('#p-url').value = cfg?.settings?.baseUrl || cfg?.baseUrl || '';
         $('#p-key').value = '';
-        $('#p-key').placeholder = cfg?.hasApiKey ? 'credencial salva (deixe vazio para manter)' : 'cole a API key/token';
+        $('#p-key').placeholder = cfg?.hasApiKey ? 'Credencial salva. Deixe vazio para manter.' : 'Cole sua API key ou token';
+        $('#p-key-field').hidden = !cloud || authMode !== 'apiKey';
+        $('#p-key').required = cloud && authMode === 'apiKey' && !hasApiKey;
+        $('#p-url').required = !cloud && !live;
+        $('#p-url').placeholder = cloud ? 'Opcional: endpoint personalizado' : 'http://servidor:porta';
+        $('#p-auth-method-field').hidden = !cloud;
+        const portalUrl = connection.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
+        $('#p-auth-methods').innerHTML = cloud ? `
+          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API key ou token</strong><small>Use uma credencial gerada no portal do provedor.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">🌐 Abrir navegador para obter chave ↗</a>` : ''}</small></span></label>
+          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">🌐 Abrir Google AI Studio no navegador ↗</a>` : ''}</small></span></div>` : ''}
+          ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
+
+        const suggestedModels = (live?.models || []).map(m => typeof m === 'string' ? m : m.id || m.name).filter(Boolean);
+        const fallbackModels = defaultPortals[name]?.models || [];
+        const modelList = suggestedModels.length > 0 ? suggestedModels : fallbackModels;
+        const chipsContainer = $('#p-model-chips');
+        if (chipsContainer) {
+          chipsContainer.innerHTML = modelList.length > 0 ? `
+            <span class="muted" style="font-size:0.75rem;display:block;margin-bottom:0.25rem;width:100%;">Modelos sugeridos (clique para preencher):</span>
+            ${modelList.map(m => `<button type="button" class="provider-model-chip" data-model-id="${esc(m)}">${esc(m)}</button>`).join('')}
+          ` : '';
+          chipsContainer.querySelectorAll('.provider-model-chip').forEach(chip => {
+            chip.onclick = () => {
+              $('#p-model').value = chip.dataset.modelId;
+              $('#p-model').focus();
+            };
+          });
+        }
+        $('#p-account-field').hidden = name !== 'cloudflare';
+        $('#p-account').required = name === 'cloudflare' && authMode === 'apiKey' && !live;
         $('#p-account').value = cfg?.settings?.accountId || '';
         $('#p-model').value = cfg?.settings?.defaultModel || '';
         $('#p-embed').value = cfg?.settings?.embedModel || '';
+        $('#p-default-chat').checked = cfg?.settings?.defaultChat ?? defaults?.chat === name;
+        $('#p-default-field').hidden = details[name].kind === 'image';
         $('#p-enabled').checked = cfg?.enabled ?? true;
+        $('#p-dialog-logo').innerHTML = logo(name);
+        $('#p-dialog-description').textContent = cloud ? `Escolha como conectar ${providerTitle(name)}. A conexão só aparecerá como online depois de um teste real.` : `Informe o endereço do servidor ${providerTitle(name)} acessível pela API Platform.`;
+        updateAuthFields();
+        $('#p-result').textContent = '';
       };
-      $('#p-name').addEventListener('change', (e) => fillProvider(e.target.value));
-      fillProvider($('#p-name').value);
-      $('#p-save').addEventListener('click', async () => {
-        const result = $('#p-result'); result.textContent = 'Salvando...'; result.className = 'muted';
-        try {
-          const data = await api('/admin/provider-configs', { method: 'POST', body: {
+
+      const closeDialog = () => { if (!saving) { stopOAuthPolling(); dialog.close(); } };
+      dialog.addEventListener('keydown', event => {
+        if (event.key !== 'Tab') return;
+        const controls = [...dialog.querySelectorAll('button, input, select')].filter(el => !el.disabled && el.getClientRects().length);
+        const target = event.shiftKey ? controls[controls.length - 1] : controls[0];
+        if (target && (event.shiftKey ? document.activeElement === controls[0] : document.activeElement === controls[controls.length - 1])) { event.preventDefault(); target.focus(); }
+      });
+      dialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
+      dialog.addEventListener('click', event => { if (event.target === dialog) closeDialog(); });
+      dialog.addEventListener('close', () => { dialog.replaceChildren(); if (returnFocus?.isConnected) returnFocus.focus(); });
+      providerView.signal.addEventListener('abort', () => { stopOAuthPolling(); if (dialog.open) dialog.close(); dialog.remove(); }, { once: true });
+      const openProvider = (name, trigger) => {
+        returnFocus = trigger;
+        dialog.innerHTML = `<div class="provider-dialog-content">
+          <button type="button" id="p-close" class="ghost provider-dialog-close" aria-label="Fechar conexão">×</button>
+          <div id="p-dialog-logo"></div><h2 id="p-dialog-title">Conectar conta</h2><p id="p-dialog-description" class="muted"></p>
+          <form id="p-form"><div class="form-grid">
+            <label class="provider-field-wide" for="p-name">Provedor<select id="p-name">${choices.map(id => `<option value="${id}">${esc(providerTitle(id))}</option>`).join('')}</select></label>
+            <input type="hidden" id="p-auth-mode" value="apiKey" />
+            <fieldset class="provider-field-wide provider-auth-method-field" id="p-auth-method-field"><legend>Forma de conexão</legend><div id="p-auth-methods"></div></fieldset>
+            <label class="provider-field-wide" for="p-key" id="p-key-field">API key / Token<input id="p-key" type="password" autocomplete="new-password" /></label>
+            <label class="provider-field-wide" for="p-url">Endpoint / Base URL<input id="p-url" type="url" /></label>
+            <label class="provider-field-wide" for="p-account" id="p-account-field">Account ID (Cloudflare)<input id="p-account" /></label>
+            <label class="provider-field-wide" for="p-model">Modelo padrão
+              <input id="p-model" placeholder="Opcional: ID do modelo" />
+              <div id="p-model-chips" class="provider-model-chips" aria-label="Sugestões de modelos"></div>
+            </label>
+            <label for="p-embed">Modelo de embeddings<input id="p-embed" placeholder="Opcional: ID do modelo" /></label>
+          </div><div class="provider-form-options"><label class="inline-check" id="p-default-field"><input id="p-default-chat" type="checkbox" /> Usar como padrão de chat e tarefas do Fênix</label><label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Provedor ativo</label></div>
+          <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden><p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p><button id="p-hf-start" type="button">Entrar com Hugging Face</button><p id="p-hf-start-status" role="status" aria-live="polite"></p><div id="p-hf-flow" hidden><p>Código de autorização: <strong id="p-hf-code"></strong></p><a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer">Abrir Hugging Face para autorizar ↗</a><button id="p-hf-copy" class="ghost" type="button">Copiar código</button><p id="p-oauth-status" role="status" aria-live="polite"></p></div></section>
+          <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden><p>Continue para o Google autorizar o acesso à API Gemini.</p><button id="p-google-start" type="button">Entrar com Google</button></section>
+          <p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
+        </div>`;
+        fillProvider(name);
+        $('#p-name').onchange = event => fillProvider(event.target.value);
+        $('#p-auth-methods').onchange = event => {
+          if (!event.target.matches('input[name="provider-auth-mode"]')) return;
+          if (event.target.value !== 'oauth') stopOAuthPolling();
+          updateAuthFields();
+        };
+        $('#p-close').onclick = closeDialog;
+        $('#p-cancel').onclick = closeDialog;
+        $('#p-hf-start').onclick = async () => {
+          const button = $('#p-hf-start');
+          const status = $('#p-hf-start-status');
+          button.disabled = true; status.textContent = 'Solicitando código ao Hugging Face...'; status.className = 'muted';
+          try {
+            const flow = await api('/admin/provider-oauth/huggingface/start', { method: 'POST' });
+            if (isViewStale(providerView)) return;
+            $('#p-hf-code').textContent = flow.userCode;
+            $('#p-hf-link').href = flow.verificationUri;
+            $('#p-hf-start-status').textContent = '';
+            $('#p-hf-flow').hidden = false;
+            const flowStatus = $('#p-oauth-status');
+            flowStatus.textContent = 'Aguardando autorização. Esta janela verificará a conexão automaticamente.';
+            flowStatus.className = 'muted';
+            const generation = ++flowGeneration;
+            const poll = async (intervalSeconds) => {
+              flowPollTimer = setTimeout(async () => {
+                if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
+                try {
+                  const result = await api('/admin/provider-oauth/huggingface/poll', { method: 'POST', body: { flowId: flow.flowId } });
+                  if (result.status === 'pending') { poll(result.intervalSeconds || flow.intervalSeconds); return; }
+                  if (result.status !== 'connected') {
+                    status.textContent = result.status === 'denied' ? 'A autorização foi negada no Hugging Face.' : 'O código expirou. Inicie uma nova conexão.';
+                    status.className = 'error'; button.disabled = false; return;
+                  }
+                  const [configResult, providerResult] = await Promise.all([api('/admin/provider-configs'), api('/admin/providers')]);
+                  if (isViewStale(providerView)) return;
+                  Object.keys(configByName).forEach(key => delete configByName[key]);
+                  configResult.configs.forEach(config => { configByName[config.name] = config; });
+                  providers = providerResult.providers; defaults = providerResult.defaults; renderCards();
+                  status.textContent = 'Conta autorizada. Verifique a conexão para confirmar que está online.';
+                  status.className = 'ok';
+                  stopOAuthPolling(); dialog.close();
+                  content().querySelector(`[data-connect-provider="${name}"]`)?.focus();
+                  toast('Conta Hugging Face conectada. A disponibilidade será confirmada pelo teste real.', 'success');
+                } catch (err) {
+                  if (isViewStale(providerView)) return;
+                  status.textContent = `Não foi possível verificar a autorização: ${err.message}`;
+                  status.className = 'error'; button.disabled = false;
+                }
+              }, Math.max(1, Math.min(Number(intervalSeconds) || 5, 60)) * 1000);
+            };
+            poll(flow.intervalSeconds);
+          } catch (err) {
+            if (!isViewStale(providerView)) { status.textContent = err.message; status.className = 'error'; button.disabled = false; }
+          }
+        };
+        $('#p-hf-copy').onclick = async () => {
+          try { await navigator.clipboard.writeText($('#p-hf-code').textContent); $('#p-oauth-status').textContent = 'Código copiado.'; }
+          catch { $('#p-oauth-status').textContent = 'Selecione e copie o código manualmente.'; }
+        };
+        $('#p-google-start').onclick = async () => {
+          const button = $('#p-google-start');
+          const status = $('#p-result');
+          button.disabled = true; status.textContent = 'Abrindo a autorização segura do Google...'; status.className = 'muted';
+          try {
+            const started = await api('/admin/provider-oauth/gemini/start', { method: 'POST' });
+            if (!isViewStale(providerView)) window.location.assign(started.authorizationUrl);
+          } catch (err) {
+            status.textContent = err.message; status.className = 'error'; button.disabled = false;
+          }
+        };
+        $('#p-form').onsubmit = async event => {
+          event.preventDefault();
+          if (saving) return;
+          const form = event.currentTarget;
+          const result = $('#p-result');
+          const body = {
             name: $('#p-name').value, enabled: $('#p-enabled').checked,
+            defaultChat: !$('#p-default-field').hidden && $('#p-default-chat').checked,
             baseUrl: $('#p-url').value.trim(), apiKey: $('#p-key').value.trim(),
             accountId: $('#p-account').value.trim(), defaultModel: $('#p-model').value.trim(),
             embedModel: $('#p-embed').value.trim(),
-          }});
-          result.textContent = data.registered ? 'Salvo e registrado.' : 'Salvo, mas faltam campos obrigatorios.';
-          result.className = data.registered ? 'ok' : 'warn';
-          scheduleView(() => pages.providers().catch(error => toast(error.message, 'error')), 700);
-        } catch (err) { result.textContent = err.message; result.className = 'error'; }
+            authMode: $('#p-auth-mode').value,
+          };
+          const saveGeneration = ++providerDataGeneration;
+          saving = true;
+          form.setAttribute('aria-busy', 'true');
+          dialog.querySelectorAll('button, input, select').forEach(el => { el.disabled = true; });
+          result.textContent = 'Salvando conexão...'; result.className = 'muted';
+          try {
+            const data = await api('/admin/provider-configs', { method: 'POST', body });
+            if (isViewStale(providerView)) return;
+            const { apiKey, name: savedName, enabled, ...settings } = body;
+            configByName[savedName] = { name: savedName, enabled, settings, hasApiKey: Boolean(apiKey || configByName[savedName]?.hasApiKey), hasOAuth: configByName[savedName]?.hasOAuth, oauthNeedsReauth: configByName[savedName]?.oauthNeedsReauth };
+            if (body.defaultChat) Object.values(configByName).forEach(cfg => { if (cfg.name !== savedName && cfg.settings) cfg.settings.defaultChat = false; });
+            if (body.defaultChat && data.registered) defaults = { ...defaults, chat: savedName };
+            renderCards();
+            if (!data.registered && enabled) {
+              result.textContent = 'Configuração salva, mas o provedor não foi registrado. Confira as credenciais e os campos obrigatórios.';
+              result.className = 'warn';
+              return;
+            }
+            saving = false;
+            dialog.close();
+            // The cards were replaced; return keyboard focus to the saved provider.
+            content().querySelector(`[data-connect-provider="${savedName}"]`)?.focus();
+            toast('Configuração salva. Use Testar conexão para verificar a disponibilidade.', 'success');
+            api('/admin/providers').then(refreshed => {
+              if (isViewStale(providerView) || saveGeneration !== providerDataGeneration) return;
+              const focusedName = document.activeElement?.dataset.connectProvider;
+              providers = refreshed.providers; defaults = refreshed.defaults; renderCards();
+              if (focusedName) content().querySelector(`[data-connect-provider="${focusedName}"]`)?.focus();
+            }).catch(err => {
+              if (!isViewStale(providerView) && saveGeneration === providerDataGeneration) toast(`Não foi possível atualizar o status: ${err.message}`, 'error');
+            });
+          } catch (err) {
+            if (isViewStale(providerView)) return;
+            if (dialog.open) { result.textContent = err.message; result.className = 'error'; }
+            else toast(`Configuração salva. Não foi possível atualizar o status: ${err.message}`, 'error');
+          } finally {
+            saving = false;
+            form.removeAttribute('aria-busy');
+            form.querySelectorAll('button, input, select').forEach(el => { el.disabled = false; });
+            $('#p-close')?.removeAttribute('disabled');
+          }
+        };
+        dialog.showModal();
+        $('#p-name').focus();
+      };
+      $('#p-add').onclick = event => openProvider(choices.find(name => !configByName[name] && !providers.some(p => p.name === name)) || choices[0], event.currentTarget);
+      content().querySelector('.providers-page').addEventListener('click', async event => {
+        const connect = event.target.closest('[data-connect-provider]');
+        if (connect) { openProvider(connect.dataset.connectProvider, connect); return; }
+        const disconnect = event.target.closest('[data-disconnect-oauth]');
+        if (disconnect) {
+          const name = disconnect.dataset.disconnectOauth;
+          disconnect.disabled = true;
+          try {
+            await api(`/admin/provider-oauth/${name}`, { method: 'DELETE' });
+            const [configResult, providerResult] = await Promise.all([api('/admin/provider-configs'), api('/admin/providers')]);
+            if (isViewStale(providerView)) return;
+            Object.keys(configByName).forEach(key => delete configByName[key]);
+            configResult.configs.forEach(config => { configByName[config.name] = config; });
+            providers = providerResult.providers; defaults = providerResult.defaults; renderCards();
+            toast(`Conta ${providerTitle(name)} desconectada.`, 'success');
+          } catch (err) {
+            if (!isViewStale(providerView)) { disconnect.disabled = false; toast(`Não foi possível desconectar: ${err.message}`, 'error'); }
+          }
+          return;
+        }
+        const btn = event.target.closest('[data-test-provider]');
+        if (!btn || btn.disabled) return;
+        const name = btn.dataset.testProvider;
+        const result = content().querySelector(`[data-provider-result="${name}"]`);
+        btn.disabled = true; result.textContent = 'Verificando conexão...'; result.className = 'provider-test-result muted';
+        try {
+          const data = await api(`/admin/provider-configs/${name}/test`, { method: 'POST' });
+          if (isViewStale(providerView)) return;
+          result.textContent = data.health.ok ? `Conexão verificada${data.health.latencyMs != null ? ` · ${fmtMs(data.health.latencyMs)}` : ''}` : 'Provedor indisponível';
+          result.className = `provider-test-result ${data.health.ok ? 'ok' : 'error'}`;
+          const status = btn.closest('.provider-card').querySelector('.provider-status');
+          status.className = `provider-status ${data.health.ok ? 'ok' : 'error'}`;
+          status.innerHTML = `<span aria-hidden="true">●</span> ${data.health.ok ? 'Online' : 'Indisponível'}`;
+        } catch (err) {
+          if (!isViewStale(providerView)) {
+            result.textContent = `Falha na conexão: ${err.message}`; result.className = 'provider-test-result error';
+            const status = btn.closest('.provider-card').querySelector('.provider-status');
+            status.className = 'provider-status warn'; status.innerHTML = '<span aria-hidden="true">●</span> Verificação falhou';
+            const live = providers.find(p => p.name === name);
+            if (live) live.health = {};
+          }
+        }
+        finally { btn.disabled = false; }
       });
-      content().querySelectorAll('[data-edit-provider]').forEach((btn) => btn.addEventListener('click', () => fillProvider(btn.dataset.editProvider)));
-      content().querySelectorAll('[data-test-provider]').forEach((btn) => btn.addEventListener('click', async () => {
-        const result = $('#p-result'); result.textContent = `Testando ${btn.dataset.testProvider}...`; result.className = 'muted';
-        try { const data = await api(`/admin/provider-configs/${btn.dataset.testProvider}/test`, { method: 'POST' }); result.textContent = `Online (${fmtMs(data.health.latencyMs)})`; result.className = 'ok'; }
-        catch (err) { result.textContent = `Falha: ${err.message}`; result.className = 'error'; }
-      }));
+      renderCards();
     },
     async models() {
       content().innerHTML = '<h1>Modelos</h1><p class="muted">Carregando modelos...</p>';
@@ -1284,8 +1708,11 @@
     const thisView = viewController;
     clearTimeout(viewTimer);
     const rawHash = location.hash.replace('#/', '') || 'home';
-    const projectMatch = rawHash.match(/^project\/(.+)$/);
-    const hash = projectMatch ? 'project' : rawHash;
+    const [routeHash, routeQuery] = rawHash.split('?', 2);
+    const oauthStatus = routeQuery ? new URLSearchParams(routeQuery).get('oauth') : null;
+    const projectMatch = routeHash.match(/^project\/(.+)$/);
+    let hash = projectMatch ? 'project' : routeHash;
+    if (hash === 'login') { location.hash = '#/'; hash = 'home'; }
     document.querySelectorAll('.sidebar nav a').forEach((a) => {
       a.classList.toggle('active', a.getAttribute('href') === `#/${hash}`);
       if (a.classList.contains('active')) a.closest('.nav-group')?.classList.add('open');
@@ -1319,6 +1746,12 @@
     try {
       if (page) await page();
       else content().innerHTML = `<h1>404</h1><p>Página ${esc(hash)} não encontrada.</p>`;
+      if (hash === 'providers' && oauthStatus) {
+        if (oauthStatus === 'connected') toast('Conta Google conectada. Teste a conexão para confirmar que está online.', 'success');
+        else if (oauthStatus === 'denied') toast('A autorização do Google foi cancelada.', 'error');
+        else toast('Não foi possível concluir a autorização do Google. Tente novamente ou use uma API key.', 'error');
+        history.replaceState(null, '', `${location.pathname}${location.search}#/providers`);
+      }
     } catch (err) {
       if (thisView.signal.aborted) return;
       content().innerHTML = `<p class="error">Erro: ${esc(err.message)}</p>`;

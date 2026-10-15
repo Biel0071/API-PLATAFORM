@@ -13,8 +13,9 @@ import {
   ProviderError,
   ProviderResult,
   ProviderResponse,
-  UpscaleInput,
   VisionInput,
+  DecisionInput,
+  DecisionResult,
 } from '../types';
 
 export interface HttpOptions {
@@ -197,6 +198,9 @@ export abstract class BaseProvider implements AIProvider {
   }
   async audio(_input: any): Promise<ProviderResult<{ text?: string; audio?: string; language?: string; confidence?: number; metadata?: unknown }>> {
     this.notSupported('audio');
+  }
+  async decision(_input: DecisionInput): Promise<ProviderResult<DecisionResult>> {
+    this.notSupported('decision');
   }
 
   async health(): Promise<HealthStatus> {

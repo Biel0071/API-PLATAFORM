@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma';
 import { cacheService } from '../../services/cache.service';
 import { queueStats } from '../../services/queue.service';
 import { registryProm } from '../../metrics';
+import { listProviderConfigs } from '../../services/provider-config.service';
 
 export async function observabilityRoutes(secured: FastifyInstance): Promise<void> {
   secured.get('/metrics', { schema: { tags: ['admin'] } }, async (_req, reply) => {
@@ -90,7 +91,7 @@ export async function observabilityRoutes(secured: FastifyInstance): Promise<voi
   // Configuracao de modelos/custos
   secured.get('/models', { schema: { tags: ['admin'] } }, async () => ({
     success: true,
-    providers: await prisma.providerConfig.findMany({ include: { models: true } }),
+    providers: await listProviderConfigs(),
   }));
 
   secured.post('/models', { schema: { tags: ['admin'] } }, async (req) => {
@@ -100,10 +101,14 @@ export async function observabilityRoutes(secured: FastifyInstance): Promise<voi
         modelId: z.string().min(1),
         displayName: z.string().optional(),
         capability: z.string().default('text'),
-        costPer1kInput: z.number().min(0).default(0),
-        costPer1kOutput: z.number().min(0).default(0),
+        costPer1kInput: z.number().finite().min(0).optional(),
+        costPer1kOutput: z.number().finite().min(0).optional(),
+      })
+      .refine((value) => (value.costPer1kInput === undefined) === (value.costPer1kOutput === undefined), {
+        message: 'Configure as duas tarifas do modelo', path: ['costPer1kInput'],
       })
       .parse(req.body);
+    const hasPricing = body.costPer1kInput !== undefined && body.costPer1kOutput !== undefined;
     const providerConfig = await prisma.providerConfig.upsert({
       where: { name: body.provider },
       create: { name: body.provider },
@@ -118,11 +123,13 @@ export async function observabilityRoutes(secured: FastifyInstance): Promise<voi
         capability: body.capability,
         costPer1kInput: body.costPer1kInput,
         costPer1kOutput: body.costPer1kOutput,
+        pricingConfigured: hasPricing,
       },
       update: {
         displayName: body.displayName,
         costPer1kInput: body.costPer1kInput,
         costPer1kOutput: body.costPer1kOutput,
+        ...(hasPricing ? { pricingConfigured: true } : {}),
       },
     });
     return { success: true, model };

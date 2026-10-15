@@ -99,7 +99,8 @@ export class OllamaProvider extends BaseProvider {
   }
 
   private requireModel(model?: string, fallback?: string): string {
-    const resolved = model ?? fallback ?? this.config.defaultModel;
+    const raw = model && model.toLowerCase() !== 'auto' ? model : undefined;
+    const resolved = raw ?? fallback ?? this.config.defaultModel ?? 'qwen2.5:3b';
     if (!resolved) throw new ProviderError(this.name, 'no model configured', 'MODEL_REQUIRED', 400);
     return resolved;
   }
@@ -126,11 +127,30 @@ export class OllamaProvider extends BaseProvider {
             num_predict: input.maxTokens,
           },
         },
-        // Ver comentario de OllamaConfig.timeoutMs - 90s e o default seguro
-        // pra cenario com tunel Cloudflare na frente; configuravel mais alto
-        // onde nao ha tunel (VPS).
         timeoutMs: this.config.timeoutMs ?? 90_000,
       });
+    } catch (err: any) {
+      const fallbackLocal = this.config.defaultModel || 'qwen2.5:3b';
+      if ((err?.status === 404 || err?.statusCode === 404) && model !== fallbackLocal) {
+        data = await this.http<any>(this.url('/api/generate'), {
+          method: 'POST',
+          body: {
+            model: fallbackLocal,
+            prompt: input.prompt,
+            system: input.system,
+            stream: false,
+            format: input.json ? 'json' : undefined,
+            keep_alive: -1,
+            options: {
+              temperature: input.temperature,
+              num_predict: input.maxTokens,
+            },
+          },
+          timeoutMs: this.config.timeoutMs ?? 90_000,
+        });
+      } else {
+        throw err;
+      }
     } finally {
       releaseGpu();
       release();
@@ -170,6 +190,24 @@ export class OllamaProvider extends BaseProvider {
         },
         timeoutMs: this.config.timeoutMs ?? 90_000,
       });
+    } catch (err: any) {
+      const fallbackLocal = this.config.defaultModel || 'qwen2.5:3b';
+      if ((err?.status === 404 || err?.statusCode === 404) && model !== fallbackLocal) {
+        data = await this.http<any>(this.url('/api/chat'), {
+          method: 'POST',
+          body: {
+            model: fallbackLocal,
+            messages,
+            stream: false,
+            tools: input.tools,
+            keep_alive: -1,
+            options: { temperature: input.temperature, num_predict: input.maxTokens },
+          },
+          timeoutMs: this.config.timeoutMs ?? 90_000,
+        });
+      } else {
+        throw err;
+      }
     } finally {
       releaseGpu();
       release();

@@ -1,0 +1,11 @@
+﻿---
+description: Karpathy behavioral guidelines to reduce common LLM coding mistakes
+alwaysApply: true
+---
+
+# Karpathy Behavioral Guidelines
+
+1. **Think Before Coding**: Surface assumptions, clarify ambiguity, identify trade-offs.
+2. **Simplicity First**: Minimal code to solve the problem. No speculative abstractions.
+3. **Surgical Changes**: Touch only required lines. Do not reformat unrelated code.
+4. **Goal-Driven Execution**: Define verifiable success criteria. Verify before completion.

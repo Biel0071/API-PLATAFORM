@@ -1,4 +1,4 @@
-export type Capability = 'chat' | 'vision' | 'image' | 'embedding' | 'audio' | 'mission';
+export type Capability = 'chat' | 'vision' | 'image' | 'embedding' | 'audio' | 'mission' | 'decision';
 
 export interface CapabilityDefinition {
   id: Capability;
@@ -18,6 +18,7 @@ export const CapabilityRegistry: Record<Capability, CapabilityDefinition> = {
   embedding: { id: 'embedding', version: '1.0', providerTypes: ['embedding'], supportsStreaming: false, supportsAsync: false, supportsRetry: true, supportsFallback: true },
   audio: { id: 'audio', version: '1.0', providerTypes: ['audio'], supportsStreaming: true, supportsAsync: false, supportsRetry: true, supportsFallback: true },
   mission: { id: 'mission', version: '1.0', providerTypes: ['llm'], requiredTools: ['planner', 'memory'], supportsStreaming: true, supportsAsync: true, supportsRetry: true, supportsFallback: true },
+  decision: { id: 'decision', version: '1.0', providerTypes: ['llm', 'classifier', 'heuristic'], supportsStreaming: false, supportsAsync: false, supportsRetry: true, supportsFallback: true },
 };
 
 export interface TokenUsage {
@@ -111,6 +112,35 @@ export interface MissionInput {
   async?: boolean;
 }
 
+export interface DecisionRequirement {
+  latency?: 'instant' | 'low' | 'medium' | 'high';
+  maxBudget?: number;
+  requiresCoding?: boolean;
+  requiresVision?: boolean;
+  requiresReasoning?: boolean;
+}
+
+export interface DecisionInput {
+  prompt?: string;
+  messages?: ChatMessage[];
+  context?: string;
+  candidateModels?: string[];
+  requirements?: DecisionRequirement;
+}
+
+export interface DecisionResult {
+  decision: 'fast' | 'coding' | 'reasoning' | 'workflow' | 'standard';
+  selectedModel: string;
+  selectedProvider: string;
+  fastResponse?: string;
+  needsBackground: boolean;
+  confidence: number;
+  latencyMs: number;
+  reason: string;
+  strategy?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface GeneratedImage {
   base64?: string;
   url?: string;
@@ -160,6 +190,10 @@ export interface ComplexityResult {
 export interface IntentResult {
   mode: ExecutionMode;
   confidence: number;
+  isCoding?: boolean;
+  isComplexProject?: boolean;
+  recommendedPool?: 'FAST' | 'CODING' | 'REASONING' | 'POWER' | 'GENERAL' | 'DECISION';
+  recommendedModel?: string;
 }
 
 export enum ExecutionMode {
@@ -237,11 +271,19 @@ export interface ExecutionMetrics {
   composer?: ComposerMetrics;
   totalLatency?: number;
   cacheHit?: boolean;
+  provider?: string;
+  model?: string;
+  retries?: number;
 }
 
 export interface ExecutionContext {
+  attemptContext?: import('./provider-attempt').ProviderAttemptContext;
   executionId: string;
   traceId: string;
+  correlationId?: string;
+  providerAccountId?: string;
+  routingPolicy?: import('./smart-router').RoutingPolicy;
+  scopes?: string[];
   tenant: string;
   budget?: ExecutionBudget;
   complexity?: ComplexityResult;
@@ -296,6 +338,7 @@ export interface AIProvider {
   vision(input: VisionInput): Promise<ProviderResponse<{ text: string }>>;
   audio(input: AudioInput): Promise<ProviderResult<{ text?: string; audio?: string; language?: string; confidence?: number; metadata?: unknown }>>;
   mission?(input: MissionInput): Promise<ProviderResult<unknown>>;
+  decision?(input: DecisionInput): Promise<ProviderResult<DecisionResult>>;
   health(): Promise<HealthStatus>;
   models(): Promise<ModelInfo[]>;
 }
@@ -385,7 +428,6 @@ export interface NodeExecutionResult {
 export interface ResultStore {
   [nodeId: string]: NodeExecutionResult;
 }
-
 
 export interface ExecutionTrace {
   executionId: string;

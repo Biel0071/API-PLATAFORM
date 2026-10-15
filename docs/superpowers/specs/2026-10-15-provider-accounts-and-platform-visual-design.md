@@ -1,6 +1,6 @@
 # Contas de provedores e identidade visual da plataforma
 
-**Status:** revisão técnica atualizada; aguardando aprovação desta versão.
+**Status:** especificação aprovada; planos de implementação em revisão.
 
 ## Objetivo
 

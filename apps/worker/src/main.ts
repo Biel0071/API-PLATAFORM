@@ -2,8 +2,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { createDecipheriv, createHash } from 'node:crypto';
-import { Queue, Worker } from 'bullmq';
+import { Queue, UnrecoverableError, Worker } from 'bullmq';
+import Redis from 'ioredis';
 import pino from 'pino';
 import { PrismaClient } from '@prisma/client';
 import {
@@ -19,6 +19,13 @@ import {
   QualityReport,
   resolveAllowedCategory,
   StandardResponse,
+  buildProviderEnvironment,
+  buildProviderAccountEnvironments,
+  resolveOAuthCredential,
+  withRedisLock,
+  ProviderAccountPool,
+  ProviderAccountBinding,
+  StoredProviderOAuth,
 } from '@api-platform/shared';
 import { processors } from './processors';
 
@@ -32,41 +39,182 @@ const logger = pino({
 
 const prisma = new PrismaClient();
 let registry = createRegistryFromEnv(process.env);
+const localAccountRotation = new Map<string, number>();
+const accountInstanceCache = new Map<
+  string,
+  { updatedAt: number; provider: ProviderAccountBinding['provider']; configured: boolean }
+>();
 const maxConcurrency = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 4));
 let effectiveConcurrency = maxConcurrency;
 const prefix = process.env.QUEUE_PREFIX ?? 'apiplatform';
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const credentialRedis = new Redis(redisUrl, {
+  enableReadyCheck: false,
+  lazyConnect: false,
+  enableOfflineQueue: false,
+});
+credentialRedis.on('error', () => logger.warn('provider OAuth lock store is unavailable'));
 const registryTtlMs = Math.max(1_000, Number(process.env.PROVIDER_REGISTRY_TTL_MS ?? 15_000));
 const heartbeatFile = process.env.WORKER_HEARTBEAT_FILE ?? '/tmp/apiplatform-worker-heartbeat';
-const globalConcurrency = Math.max(1, Number(process.env.GLOBAL_WORKER_CONCURRENCY ?? maxConcurrency));
+const globalConcurrency = Math.max(
+  1,
+  Number(process.env.GLOBAL_WORKER_CONCURRENCY ?? maxConcurrency),
+);
 let registryLoadedAt = 0;
-
 
 const jobScheduler = new AdaptiveJobScheduler(globalConcurrency);
 let registryRefresh: Promise<typeof registry> | undefined;
 
 async function loadRegistryFromDatabase() {
-  const merged: Record<string, string | undefined> = { ...process.env };
-  const encryptionKey = createHash('sha256').update(process.env.JWT_SECRET ?? '').digest();
-  const rows = await prisma.providerConfig.findMany({ where: { enabled: true } });
-  for (const row of rows) {
-    const s = (row.settings ?? {}) as any; const prefixName = row.name.toUpperCase();
-    let secret: string | undefined;
-    if (s.apiKeyEncrypted) {
-      const [iv, tag, data] = String(s.apiKeyEncrypted).split('.');
-      const decipher = createDecipheriv('aes-256-gcm', encryptionKey, Buffer.from(iv, 'base64'));
-      decipher.setAuthTag(Buffer.from(tag, 'base64'));
-      secret = Buffer.concat([decipher.update(Buffer.from(data, 'base64')), decipher.final()]).toString('utf8');
+  const rows = await prisma.providerConfig.findMany();
+  const merged = await buildProviderEnvironment(
+    rows,
+    process.env,
+    process.env.JWT_SECRET ?? '',
+    (name, oauth) =>
+      resolveOAuthCredential(
+        {
+          provider: name,
+          secret: process.env.JWT_SECRET ?? '',
+          clientId:
+            name === 'gemini'
+              ? process.env.GEMINI_OAUTH_CLIENT_ID
+              : process.env.HUGGINGFACE_OAUTH_CLIENT_ID,
+          clientSecret:
+            name === 'gemini'
+              ? process.env.GEMINI_OAUTH_CLIENT_SECRET
+              : process.env.HUGGINGFACE_OAUTH_CLIENT_SECRET,
+          withLock: (key, operation) => withRedisLock(credentialRedis, key, operation),
+          load: async () => {
+            const current = await prisma.providerConfig.findUnique({ where: { name } });
+            return (current?.settings as any)?.oauth;
+          },
+          save: async (updated) => {
+            const current = await prisma.providerConfig.findUnique({ where: { name } });
+            if (!current) return;
+            await prisma.providerConfig.update({
+              where: { name },
+              data: { settings: { ...((current.settings ?? {}) as any), oauth: updated } },
+            });
+          },
+        },
+        oauth,
+      ),
+  );
+  const nextRegistry = createRegistryFromEnv(merged);
+  const accounts = await prisma.providerAccount.findMany({
+    where: { disconnectedAt: null },
+    include: { provider: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  const accountRows = await buildProviderAccountEnvironments(
+    accounts,
+    process.env.JWT_SECRET ?? '',
+    async (accountId, name, oauth) =>
+      resolveOAuthCredential(
+        {
+          provider: name,
+          secret: process.env.JWT_SECRET ?? '',
+          clientId:
+            name === 'gemini'
+              ? process.env.GEMINI_OAUTH_CLIENT_ID
+              : process.env.HUGGINGFACE_OAUTH_CLIENT_ID,
+          clientSecret:
+            name === 'gemini'
+              ? process.env.GEMINI_OAUTH_CLIENT_SECRET
+              : process.env.HUGGINGFACE_OAUTH_CLIENT_SECRET,
+          withLock: (key, operation) =>
+            withRedisLock(credentialRedis, `${key}:${accountId}`, operation),
+          load: async () => {
+            const current = await prisma.providerAccount.findUnique({ where: { id: accountId } });
+            return accountStoredOAuth(current);
+          },
+          save: async (updated) => {
+            await prisma.providerAccount.update({
+              where: { id: accountId },
+              data: {
+                oauthProvider: updated.provider,
+                oauthAccessTokenEncrypted: updated.accessTokenEncrypted,
+                oauthRefreshTokenEncrypted: updated.refreshTokenEncrypted ?? null,
+                oauthExpiresAt: updated.expiresAt ? new Date(updated.expiresAt) : null,
+                oauthScope: updated.scope ?? null,
+                oauthNeedsReauth: updated.reauthRequired ?? false,
+              },
+            });
+          },
+        },
+        oauth,
+      ),
+  );
+  const activeIds = new Set(accounts.map((account) => account.id));
+  for (const id of accountInstanceCache.keys())
+    if (!activeIds.has(id)) accountInstanceCache.delete(id);
+  const accountBindings: ProviderAccountBinding[] = [];
+  for (const row of accountRows) {
+    const account = accounts.find((candidate) => candidate.id === row.accountId)!;
+    let cached = accountInstanceCache.get(account.id);
+    let accountConfigured = cached?.configured ?? true;
+    if (!cached || cached.updatedAt !== account.updatedAt.getTime()) {
+      const accountRegistry = createRegistryFromEnv(row.env);
+      accountConfigured = accountRegistry.has(row.providerName);
+      const provider = accountConfigured
+        ? accountRegistry.get(row.providerName)
+        : nextRegistry.has(row.providerName)
+          ? nextRegistry.get(row.providerName)
+          : undefined;
+      if (!provider) continue;
+      cached = {
+        updatedAt: account.updatedAt.getTime(),
+        provider,
+        configured: accountConfigured,
+      };
+      accountInstanceCache.set(account.id, cached);
     }
-    if (row.name === 'cloudflare') {
-      merged.CLOUDFLARE_ACCOUNT_ID=s.accountId; merged.CLOUDFLARE_API_TOKEN=secret; merged.CLOUDFLARE_BASE_URL=s.baseUrl; merged.CLOUDFLARE_DEFAULT_MODEL=s.defaultModel;
-    } else if (['ollama','lmstudio','comfyui','forge','invokeai'].includes(row.name)) {
-      merged[`${prefixName}_BASE_URL`]=s.baseUrl; merged[`${prefixName}_DEFAULT_MODEL`]=s.defaultModel;
-    } else {
-      merged[`${prefixName}_API_KEY`]=secret; merged[`${prefixName}_BASE_URL`]=s.baseUrl; merged[`${prefixName}_DEFAULT_MODEL`]=s.defaultModel;
-    }
+    accountBindings.push({
+      accountId: account.id,
+      providerName: row.providerName,
+      provider: cached.provider,
+      configured: accountConfigured,
+      enabled:
+        accountConfigured &&
+        account.enabled &&
+        account.provider.enabled &&
+        !account.disconnectedAt,
+      healthOk: account.healthOk,
+      healthCheckedAt: account.healthCheckedAt,
+    });
+    if (!nextRegistry.has(row.providerName)) nextRegistry.register(cached.provider);
   }
-  return createRegistryFromEnv(merged);
+  nextRegistry.setAccountPool(
+    new ProviderAccountPool(
+      async () => accountBindings,
+      async (providerName, count) => {
+        try {
+          const next = await credentialRedis.incr(`provider:account:round-robin:${providerName}`);
+          return (next - 1) % count;
+        } catch {
+          const next = (localAccountRotation.get(providerName) ?? 0) + 1;
+          localAccountRotation.set(providerName, next);
+          return (next - 1) % count;
+        }
+      },
+    ),
+  );
+  return nextRegistry;
+}
+
+function accountStoredOAuth(
+  account: Awaited<ReturnType<typeof prisma.providerAccount.findUnique>>,
+): StoredProviderOAuth | undefined {
+  if (!account?.oauthProvider || !account.oauthAccessTokenEncrypted) return undefined;
+  return {
+    provider: account.oauthProvider as StoredProviderOAuth['provider'],
+    accessTokenEncrypted: account.oauthAccessTokenEncrypted,
+    refreshTokenEncrypted: account.oauthRefreshTokenEncrypted ?? undefined,
+    expiresAt: account.oauthExpiresAt?.getTime(),
+    scope: account.oauthScope ?? undefined,
+    reauthRequired: account.oauthNeedsReauth,
+  };
 }
 
 async function getRegistry() {
@@ -78,7 +226,9 @@ async function getRegistry() {
         registryLoadedAt = Date.now();
         return next;
       })
-      .finally(() => { registryRefresh = undefined; });
+      .finally(() => {
+        registryRefresh = undefined;
+      });
   }
   return registryRefresh;
 }
@@ -123,9 +273,13 @@ async function enqueueReverseCallback(
 ): Promise<void> {
   if (!jobId || !callback?.url) return;
   try {
-    await webhookQueue.add('webhook', { ...callback, event, body }, {
-      jobId: `${jobId}-${event.replace('.', '-')}`,
-    });
+    await webhookQueue.add(
+      'webhook',
+      { ...callback, event, body },
+      {
+        jobId: `${jobId}-${event.replace('.', '-')}`,
+      },
+    );
   } catch (err) {
     logger.error({ jobId, event, err }, 'failed to enqueue reverse callback');
   }
@@ -146,10 +300,12 @@ async function markJob(
 ): Promise<void> {
   if (!jobId) return;
   await prisma.job
-    .update({ where: { id: jobId }, data: { ...data, attempts: { increment: data.startedAt ? 1 : 0 } } })
+    .update({
+      where: { id: jobId },
+      data: { ...data, attempts: { increment: data.startedAt ? 1 : 0 } },
+    })
     .catch(() => undefined);
 }
-
 
 function memoryScope(data: Record<string, any>): string {
   return `${data.__tenantId ?? 'global'}:${data.__projectId ?? 'all'}`;
@@ -162,8 +318,14 @@ async function applyExecutionMemory(queue: string, data: Record<string, any>) {
     const candidates = await prisma.executionMemory.findMany({
       where: { scopeKey: memoryScope(data), queue, contextHash },
       select: {
-        provider: true, model: true, successCount: true, failureCount: true,
-        approvedCount: true, rejectedCount: true, qualityTotal: true, durationTotalMs: true,
+        provider: true,
+        model: true,
+        successCount: true,
+        failureCount: true,
+        approvedCount: true,
+        rejectedCount: true,
+        qualityTotal: true,
+        durationTotalMs: true,
       },
     });
     const choice = chooseExecutionMemory(candidates);
@@ -191,18 +353,39 @@ async function learnExecutionSuccess(
   const scopeKey = memoryScope(data);
   const contextHash = executionMemoryHash(queue, data);
   const context = executionMemoryContext(queue, data);
-  await prisma.executionMemory.upsert({
-    where: { scopeKey_queue_contextHash_provider_model: { scopeKey, queue, contextHash, provider, model } },
-    create: {
-      scopeKey, tenantId: data.__tenantId, projectId: data.__projectId, queue, contextHash,
-      context: context as object, provider, model, successCount: 1, qualityTotal: quality,
-      durationTotalMs: BigInt(durationMs), lastUsedAt: new Date(),
-    },
-    update: {
-      successCount: { increment: 1 }, qualityTotal: { increment: quality },
-      durationTotalMs: { increment: BigInt(durationMs) }, lastUsedAt: new Date(),
-    },
-  }).catch((error: unknown) => logger.warn({ queue, error }, 'execution memory learning failed'));
+  await prisma.executionMemory
+    .upsert({
+      where: {
+        scopeKey_queue_contextHash_provider_model: {
+          scopeKey,
+          queue,
+          contextHash,
+          provider,
+          model,
+        },
+      },
+      create: {
+        scopeKey,
+        tenantId: data.__tenantId,
+        projectId: data.__projectId,
+        queue,
+        contextHash,
+        context: context as object,
+        provider,
+        model,
+        successCount: 1,
+        qualityTotal: quality,
+        durationTotalMs: BigInt(durationMs),
+        lastUsedAt: new Date(),
+      },
+      update: {
+        successCount: { increment: 1 },
+        qualityTotal: { increment: quality },
+        durationTotalMs: { increment: BigInt(durationMs) },
+        lastUsedAt: new Date(),
+      },
+    })
+    .catch((error: unknown) => logger.warn({ queue, error }, 'execution memory learning failed'));
 }
 
 async function learnExecutionFailure(queue: string, data: Record<string, any>): Promise<void> {
@@ -211,14 +394,33 @@ async function learnExecutionFailure(queue: string, data: Record<string, any>): 
   const scopeKey = memoryScope(data);
   const contextHash = executionMemoryHash(queue, data);
   const context = executionMemoryContext(queue, data);
-  await prisma.executionMemory.upsert({
-    where: { scopeKey_queue_contextHash_provider_model: { scopeKey, queue, contextHash, provider: route.provider, model: route.model } },
-    create: {
-      scopeKey, tenantId: data.__tenantId, projectId: data.__projectId, queue, contextHash,
-      context: context as object, provider: route.provider, model: route.model, failureCount: 1,
-    },
-    update: { failureCount: { increment: 1 }, lastUsedAt: new Date() },
-  }).catch((error: unknown) => logger.warn({ queue, error }, 'execution memory failure learning failed'));
+  await prisma.executionMemory
+    .upsert({
+      where: {
+        scopeKey_queue_contextHash_provider_model: {
+          scopeKey,
+          queue,
+          contextHash,
+          provider: route.provider,
+          model: route.model,
+        },
+      },
+      create: {
+        scopeKey,
+        tenantId: data.__tenantId,
+        projectId: data.__projectId,
+        queue,
+        contextHash,
+        context: context as object,
+        provider: route.provider,
+        model: route.model,
+        failureCount: 1,
+      },
+      update: { failureCount: { increment: 1 }, lastUsedAt: new Date() },
+    })
+    .catch((error: unknown) =>
+      logger.warn({ queue, error }, 'execution memory failure learning failed'),
+    );
 }
 function clampQuality(value: unknown): number {
   const score = Number(value);
@@ -230,7 +432,11 @@ function resultAsText(result: unknown): string | undefined {
   if (!result || typeof result !== 'object') return undefined;
   const value = result as Record<string, unknown>;
   if (typeof value.text === 'string') return value.text;
-  if (value.message && typeof value.message === 'object' && typeof (value.message as Record<string, unknown>).content === 'string') {
+  if (
+    value.message &&
+    typeof value.message === 'object' &&
+    typeof (value.message as Record<string, unknown>).content === 'string'
+  ) {
     return (value.message as Record<string, unknown>).content as string;
   }
   if (!Array.isArray(value.images)) return JSON.stringify(value);
@@ -245,13 +451,19 @@ async function assessJobQuality(
   if (queue === 'webhook' || queue === 'embedding') return undefined;
   const threshold = clampQuality(data.minQuality ?? process.env.MIN_OUTPUT_QUALITY ?? 90);
   const text = resultAsText(response.result);
-  const generatedImages = (response.result as { images?: Array<{ base64?: string; url?: string }> } | undefined)?.images;
+  const generatedImages = (
+    response.result as { images?: Array<{ base64?: string; url?: string }> } | undefined
+  )?.images;
   let report: QualityReport;
 
   if (queue === 'classification') {
     const classification = response.result as { category?: string; raw?: string } | undefined;
-    const category = classification?.category &&
-      resolveAllowedCategory(classification.category, Array.isArray(data.categories) ? data.categories : []);
+    const category =
+      classification?.category &&
+      resolveAllowedCategory(
+        classification.category,
+        Array.isArray(data.categories) ? data.categories : [],
+      );
     const score = category ? 100 : 0;
     report = {
       score,
@@ -261,36 +473,63 @@ async function assessJobQuality(
       issues: category ? [] : ['classification_outside_allowed_categories'],
     };
   } else if (Array.isArray(generatedImages)) {
-    const valid = generatedImages.filter((image) => (image.base64?.length ?? 0) > 4_096 || Boolean(image.url));
+    const valid = generatedImages.filter(
+      (image) => (image.base64?.length ?? 0) > 4_096 || Boolean(image.url),
+    );
     const score = generatedImages.length > 0 && valid.length === generatedImages.length ? 100 : 30;
-    report = { score, threshold, passed: score >= threshold, method: 'deterministic', issues: score === 100 ? [] : ['missing_or_too_small_image'] };
+    report = {
+      score,
+      threshold,
+      passed: score >= threshold,
+      method: 'deterministic',
+      issues: score === 100 ? [] : ['missing_or_too_small_image'],
+    };
   } else if (text !== undefined) {
     report = deterministicTextQuality(text, threshold, {
       jsonExpected: data.json === true || queue === 'seo',
       shortAnswer: data.json !== true && queue !== 'seo',
     });
   } else {
-    report = { score: 0, threshold, passed: false, method: 'deterministic', issues: ['unsupported_or_empty_output'] };
+    report = {
+      score: 0,
+      threshold,
+      passed: false,
+      method: 'deterministic',
+      issues: ['unsupported_or_empty_output'],
+    };
   }
 
   return report;
 }
-async function persistGeneratedImages(jobId: string | undefined, jobData: any, response: any): Promise<void> {
+async function persistGeneratedImages(
+  jobId: string | undefined,
+  jobData: any,
+  response: any,
+): Promise<void> {
   const images = response?.result?.images;
   if (!Array.isArray(images) || !images.length) return;
   const dir = process.env.IMAGE_STORAGE_PATH ?? '/app/storage/images';
   await mkdir(dir, { recursive: true });
   for (const image of images) {
     if (!image?.base64) continue;
-    const record = await prisma.image.create({ data: {
-      tenantId: jobData.__tenantId, projectId: jobData.__projectId, jobId, provider: response.provider,
-      model: response.model, prompt: jobData.prompt, kind: jobData.__kind ?? 'generation',
-      base64Size: image.base64.length, seed: jobData.seed != null ? BigInt(jobData.seed) : undefined,
-    }});
+    const record = await prisma.image.create({
+      data: {
+        tenantId: jobData.__tenantId,
+        projectId: jobData.__projectId,
+        jobId,
+        provider: response.provider,
+        model: response.model,
+        prompt: jobData.prompt,
+        kind: jobData.__kind ?? 'generation',
+        base64Size: image.base64.length,
+        seed: jobData.seed != null ? BigInt(jobData.seed) : undefined,
+      },
+    });
     await writeFile(path.join(dir, `${record.id}.png`), Buffer.from(image.base64, 'base64'));
     const url = `/v1/images/${record.id}/file`;
     await prisma.image.update({ where: { id: record.id }, data: { url } });
-    delete image.base64; image.url = url;
+    delete image.base64;
+    image.url = url;
   }
 }
 
@@ -323,13 +562,17 @@ for (const name of queueNames) {
         const quality = await assessJobQuality(name, job.data as Record<string, any>, result);
         if (quality) {
           result.quality = quality;
-          const strict = (job.data as any).strictQuality !== false && process.env.QUALITY_GATE_STRICT !== 'false';
+          const strict =
+            (job.data as any).strictQuality !== false &&
+            process.env.QUALITY_GATE_STRICT !== 'false';
           if (strict && !quality.passed) throw new QualityGateError(quality);
         }
         await persistGeneratedImages(jobId, job.data, result);
         const durationMs = Date.now() - start;
         const finishedAt = new Date();
-        Object.assign(result, { memory: { learned: true, routeReused: Boolean(memoryChoice), ...(memoryChoice ?? {}) } });
+        Object.assign(result, {
+          memory: { learned: true, routeReused: Boolean(memoryChoice), ...(memoryChoice ?? {}) },
+        });
         await markJob(jobId, {
           status: 'completed',
           error: null,
@@ -339,11 +582,25 @@ for (const name of queueNames) {
           durationMs,
           finishedAt,
         });
-        await learnExecutionSuccess(name, job.data as Record<string, any>, result.provider, result.model, quality?.score ?? 100, durationMs);
+        await learnExecutionSuccess(
+          name,
+          job.data as Record<string, any>,
+          result.provider,
+          result.model,
+          quality?.score ?? 100,
+          durationMs,
+        );
         await enqueueReverseCallback(jobId, (job.data as any).__callback, 'job.completed', {
-          event: 'job.completed', jobId, queue: name, status: 'completed', result,
+          event: 'job.completed',
+          jobId,
+          queue: name,
+          status: 'completed',
+          result,
           origin: (job.data as any).__reverse,
-          provider: result.provider, model: result.model, durationMs, finishedAt: finishedAt.toISOString(),
+          provider: result.provider,
+          model: result.model,
+          durationMs,
+          finishedAt: finishedAt.toISOString(),
         });
         logger.info({ queue: name, jobId, ms: durationMs }, 'job completed');
         return result;
@@ -351,14 +608,20 @@ for (const name of queueNames) {
         const message = err instanceof Error ? err.message : String(err);
         const maxAttempts = Number(job.opts.attempts ?? 1);
         // Entrada invalida e deterministica nao melhora com retry.
-        const permanentFailure = /Invalid argument returned 22|invalid image|unsupported|validation|unauthori[sz]ed|forbidden|authentication|api[ -]?key|model.*not found|(?:http|status)\s*(?:400|401|403|404)/i.test(message);
+        const permanentFailure = err instanceof UnrecoverableError ||
+          /Invalid argument returned 22|invalid image|unsupported|validation|unauthori[sz]ed|forbidden|authentication|api[ -]?key|model.*not found|(?:http|status)\s*(?:400|401|403|404)/i.test(message);
+        const statusCode = (err as any)?.statusCode ?? (err as any)?.status;
+        const errorCode = typeof (err as any)?.code === 'string' && /^[A-Z0-9_-]{1,64}$/i.test((err as any).code) ? (err as any).code : undefined;
+        const safeMessage = typeof statusCode === 'number'
+          ? `Provider request failed (${statusCode})${errorCode ? `: ${errorCode}` : ''}`
+          : errorCode ? `Provider request failed: ${errorCode}` : 'Job execution failed';
         if (permanentFailure) job.discard();
         const willRetry = !permanentFailure && job.attemptsMade + 1 < maxAttempts;
         const durationMs = Date.now() - start;
         const finishedAt = willRetry ? null : new Date();
         await markJob(jobId, {
           status: willRetry ? 'waiting' : 'failed',
-          error: message.slice(0, 2000),
+          error: safeMessage,
           durationMs,
           startedAt: willRetry ? null : undefined,
           finishedAt,
@@ -366,12 +629,18 @@ for (const name of queueNames) {
         if (!willRetry) {
           await learnExecutionFailure(name, job.data as Record<string, any>);
           await enqueueReverseCallback(jobId, (job.data as any).__callback, 'job.failed', {
-            event: 'job.failed', jobId, queue: name, status: 'failed', error: message.slice(0, 2000),
-            origin: (job.data as any).__reverse, durationMs, finishedAt: finishedAt?.toISOString(),
+            event: 'job.failed',
+            jobId,
+            queue: name,
+            status: 'failed',
+            error: safeMessage,
+            origin: (job.data as any).__reverse,
+            durationMs,
+            finishedAt: finishedAt?.toISOString(),
           });
         }
         logger[willRetry ? 'warn' : 'error'](
-          { queue: name, jobId, attempt: job.attemptsMade + 1, maxAttempts, err: message },
+          { queue: name, jobId, attempt: job.attemptsMade + 1, maxAttempts, statusCode, errorCode },
           willRetry ? 'job failed; retry scheduled' : 'job failed permanently',
         );
         throw err;
@@ -389,7 +658,7 @@ for (const name of queueNames) {
       drainDelay: 5,
     },
   );
-  worker.on('error', (err) => logger.error({ queue: name, err: err.message }, 'worker error'));
+  worker.on('error', (err) => logger.error({ queue: name, code: (err as any)?.code }, 'worker error'));
   worker.on('stalled', (jobId) => {
     logger.warn({ queue: name, jobId }, 'stalled job recovered by BullMQ');
     void markJob(String(jobId), { status: 'waiting', startedAt: null, finishedAt: null });
@@ -407,8 +676,10 @@ const recoverySamplesRequired = Math.max(1, Number(process.env.RESOURCE_RECOVERY
 function tuneConcurrency(): void {
   if (process.env.ADAPTIVE_CONCURRENCY === 'false') return;
   let memory = {
-    memoryAvailableBytes: os.freemem(), memoryTotalBytes: os.totalmem(),
-    swapFreeBytes: 0, swapTotalBytes: 0,
+    memoryAvailableBytes: os.freemem(),
+    memoryTotalBytes: os.totalmem(),
+    swapFreeBytes: 0,
+    swapTotalBytes: 0,
   };
   try {
     const host = parseProcMeminfo(readFileSync('/proc/meminfo', 'utf8'));
@@ -417,7 +688,10 @@ function tuneConcurrency(): void {
     // Windows/desenvolvimento: usa os valores do sistema operacional.
   }
   const cpuLoadRatio = os.loadavg()[0] / Math.max(1, os.availableParallelism());
-  const decision = decideConcurrency({ ...memory, cpuLoadRatio }, Math.min(maxConcurrency, globalConcurrency));
+  const decision = decideConcurrency(
+    { ...memory, cpuLoadRatio },
+    Math.min(maxConcurrency, globalConcurrency),
+  );
   let target = decision.concurrency;
 
   // Reduz imediatamente; para aumentar exige leituras saudaveis consecutivas.
@@ -434,16 +708,22 @@ function tuneConcurrency(): void {
   for (const [queueName, worker] of workersByQueue) {
     if (queueName !== 'image') worker.concurrency = target;
   }
-  logger.warn({
-    pressure: decision.pressure,
-    reasons: decision.reasons,
-    memoryAvailableRatio: Number(decision.memoryAvailableRatio.toFixed(3)),
-    swapUsedRatio: Number(decision.swapUsedRatio.toFixed(3)),
-    cpuLoadRatio: Number(decision.cpuLoadRatio.toFixed(3)),
-    concurrency: target,
-  }, 'worker concurrency adjusted to host resources');
+  logger.warn(
+    {
+      pressure: decision.pressure,
+      reasons: decision.reasons,
+      memoryAvailableRatio: Number(decision.memoryAvailableRatio.toFixed(3)),
+      swapUsedRatio: Number(decision.swapUsedRatio.toFixed(3)),
+      cpuLoadRatio: Number(decision.cpuLoadRatio.toFixed(3)),
+      concurrency: target,
+    },
+    'worker concurrency adjusted to host resources',
+  );
 }
-const resourceTimer = setInterval(tuneConcurrency, Math.max(5_000, Number(process.env.RESOURCE_CHECK_INTERVAL_MS ?? 15_000)));
+const resourceTimer = setInterval(
+  tuneConcurrency,
+  Math.max(5_000, Number(process.env.RESOURCE_CHECK_INTERVAL_MS ?? 15_000)),
+);
 tuneConcurrency();
 
 // ---------- Heartbeat ----------
@@ -462,13 +742,23 @@ let heartbeatRunning = false;
 async function safeHeartbeat(): Promise<void> {
   if (heartbeatRunning) return;
   heartbeatRunning = true;
-  try { await heartbeat(); } finally { heartbeatRunning = false; }
+  try {
+    await heartbeat();
+  } finally {
+    heartbeatRunning = false;
+  }
 }
 void safeHeartbeat();
 const heartbeatTimer = setInterval(() => void safeHeartbeat(), 30_000);
 
 logger.info(
-  { queues: queueNames, concurrency: maxConcurrency, globalConcurrency, adaptive: process.env.ADAPTIVE_CONCURRENCY !== 'false', providers: registry.list().map((p) => p.name) },
+  {
+    queues: queueNames,
+    concurrency: maxConcurrency,
+    globalConcurrency,
+    adaptive: process.env.ADAPTIVE_CONCURRENCY !== 'false',
+    providers: registry.list().map((p) => p.name),
+  },
   'API Platform worker online',
 );
 
@@ -481,6 +771,7 @@ async function shutdown(signal: string): Promise<void> {
   clearInterval(resourceTimer);
   await Promise.all(workers.map((w) => w.close()));
   await webhookQueue.close();
+  credentialRedis.disconnect();
   await prisma.$disconnect();
   process.exit(0);
 }

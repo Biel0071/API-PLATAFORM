@@ -5,7 +5,7 @@ import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
 import { redis } from './lib/redis';
 import { reloadRegistry } from './services/ai.service';
-import { backfillLegacyProviderAccounts } from './services/provider-account-migration.service';
+import { backfillLegacyProviderAccounts, finalizeLegacyProviderSecrets } from './services/provider-account-migration.service';
 import { setupMetricsFetcher } from './services/metrics-fetcher.service';
 import { closeQueues } from './services/queue.service';
 import { startReversePoller, stopReversePoller } from './services/reverse-poller.service';
@@ -15,6 +15,7 @@ async function main(): Promise<void> {
   await bootstrap();
   await backfillLegacyProviderAccounts();
   await reloadRegistry();
+  await finalizeLegacyProviderSecrets();
   setupMetricsFetcher(); // Configura métricas reais do RequestLog
   const app = await buildApp();
 

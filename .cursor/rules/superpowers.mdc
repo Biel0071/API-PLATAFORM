@@ -1,0 +1,12 @@
+﻿---
+description: Superpowers development methodology: TDD, systematic debugging, planning and verification
+alwaysApply: true
+---
+
+# Superpowers Methodology
+
+1. **Brainstorm & Spec**: Align on requirements before writing code.
+2. **Plan & Execute**: Break into bite-sized verifiable steps.
+3. **Test-Driven Development (TDD)**: Write tests first (red-green-refactor).
+4. **Systematic Debugging**: Diagnose root cause from evidence before fixing.
+5. **Verify Before Done**: Execute tests and linters before closing task.

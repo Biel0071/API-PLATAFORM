@@ -5,6 +5,11 @@ export const redis = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   lazyConnect: false,
+  enableOfflineQueue: false,
+});
+
+redis.on('error', () => {
+  // Ignora erros de conexão quando o Redis estiver offline para permitir fallback transparente
 });
 
 /** Opcoes dedicadas para BullMQ, sem misturar instancias de versoes do ioredis. */

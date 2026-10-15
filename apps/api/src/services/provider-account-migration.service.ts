@@ -87,3 +87,59 @@ export async function backfillLegacyProviderAccounts(): Promise<number> {
     return imported.count;
   });
 }
+
+function validatedAccount(provider: any): boolean {
+  const account = provider.legacyAccount;
+  if (!account || account.legacyProviderConfigId !== provider.id || account.providerId !== provider.id) return false;
+  if (!account.enabled || account.disconnectedAt || account.healthOk !== true) return false;
+  if (!(account.healthCheckedAt instanceof Date) || Date.now() - account.healthCheckedAt.getTime() > 15 * 60_000) return false;
+  if (account.authMode === 'apiKey') return nonemptyString(account.credentialEncrypted) !== null;
+  if (account.authMode === 'oauth') {
+    if (!nonemptyString(account.oauthAccessTokenEncrypted) || account.oauthNeedsReauth) return false;
+    const expiresAt = account.oauthExpiresAt instanceof Date ? account.oauthExpiresAt.getTime() : null;
+    return expiresAt === null || expiresAt > Date.now() || nonemptyString(account.oauthRefreshTokenEncrypted) !== null;
+  }
+  if (account.authMode === 'local') return localProviders.has(provider.name) && localEndpoint(nonemptyString(account.baseUrl));
+  return false;
+}
+
+function clearLegacySecrets(value: Prisma.JsonValue | undefined): Prisma.InputJsonObject | null {
+  const settings = objectSettings(value);
+  const cleaned: Record<string, Prisma.InputJsonValue> = { ...settings } as Record<string, Prisma.InputJsonValue>;
+  let changed = false;
+  for (const key of ['apiKeyEncrypted', 'apiKey', 'token', 'accessToken', 'refreshToken', 'clientSecret']) {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      delete cleaned[key];
+      changed = true;
+    }
+  }
+  const oauth = objectSettings(settings.oauth);
+  const cleanedOauth: Record<string, Prisma.InputJsonValue> = { ...oauth } as Record<string, Prisma.InputJsonValue>;
+  for (const key of ['accessTokenEncrypted', 'refreshTokenEncrypted', 'clientSecret']) {
+    if (Object.prototype.hasOwnProperty.call(cleanedOauth, key)) {
+      delete cleanedOauth[key];
+      changed = true;
+    }
+  }
+  if (changed) {
+    if (Object.keys(cleanedOauth).length) cleaned.oauth = cleanedOauth;
+    else delete cleaned.oauth;
+  }
+  return changed ? cleaned as Prisma.InputJsonObject : null;
+}
+
+/** Clears legacy credentials only after an account linked to this provider passed a recent real health check. */
+export async function finalizeLegacyProviderSecrets(): Promise<number> {
+  return prisma.$transaction(async (transaction) => {
+    const providers = await transaction.providerConfig.findMany({ include: { legacyAccount: true } });
+    let updated = 0;
+    for (const provider of providers as any[]) {
+      if (!validatedAccount(provider)) continue;
+      const settings = clearLegacySecrets(provider.settings);
+      if (!settings) continue;
+      await transaction.providerConfig.update({ where: { id: provider.id }, data: { settings } });
+      updated++;
+    }
+    return updated;
+  });
+}

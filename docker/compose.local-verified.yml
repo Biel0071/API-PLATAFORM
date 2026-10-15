@@ -1,0 +1,8 @@
+services:
+  api:
+    image: ai-platform-api:verified
+    build:
+      dockerfile: docker/api-local-verified.Dockerfile
+    command: ["node", "dist/main.js"]
+  dashboard:
+    image: ai-platform-dashboard:verified

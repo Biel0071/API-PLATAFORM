@@ -11,7 +11,8 @@ export type CapabilityId =
   | 'MEMORY'
   | 'FILES'
   | 'CODE'
-  | 'TOOLS';
+  | 'TOOLS'
+  | 'DECISION';
 
 export interface ICapability {
   id: CapabilityId;
@@ -36,6 +37,17 @@ export const CAPABILITY_REGISTRY: Record<CapabilityId, ICapability> = {
     supportsFallback: true,
     supportsCache: true,
     permissions: ['capability:chat:execute'],
+  },
+  DECISION: {
+    id: 'DECISION',
+    version: '1.0',
+    providerTypes: ['laya', 'jev', 'heuristic', 'ollama', 'openai'],
+    supportsStreaming: false,
+    supportsAsync: false,
+    supportsRetry: true,
+    supportsFallback: true,
+    supportsCache: true,
+    permissions: ['capability:decision:execute'],
   },
   MISSION: {
     id: 'MISSION',
@@ -249,6 +261,58 @@ export const MODEL_REGISTRY: IModel[] = [
     functionCalling: false,
     pricePer1kTokens: { prompt: 0, completion: 0 },
     latencyTier: 'high',
+    status: 'active'
+  },
+  {
+    id: 'laya-system1',
+    provider: 'laya',
+    capability: 'DECISION',
+    contextWindow: 4096,
+    streaming: false,
+    vision: false,
+    audio: false,
+    functionCalling: false,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'jev-cloud',
+    provider: 'jev',
+    capability: 'DECISION',
+    contextWindow: 8192,
+    streaming: false,
+    vision: false,
+    audio: false,
+    functionCalling: false,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'deepseek-coder:6.7b',
+    provider: 'ollama',
+    capability: 'CODE',
+    contextWindow: 16384,
+    streaming: true,
+    vision: false,
+    audio: false,
+    functionCalling: true,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'medium',
+    status: 'active'
+  },
+  {
+    id: 'moonshot-v1-8k',
+    provider: 'kimi',
+    capability: 'CODE',
+    contextWindow: 128000,
+    streaming: true,
+    vision: false,
+    audio: false,
+    functionCalling: true,
+    pricePer1kTokens: { prompt: 0.001, completion: 0.002 },
+    latencyTier: 'medium',
     status: 'active'
   }
 ];

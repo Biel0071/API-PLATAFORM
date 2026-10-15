@@ -200,7 +200,7 @@ describe('FENIX OS Operational Core Services', () => {
       const apiRepo = repos.find((r) => r.id === 'repo_api_platform');
       expect(apiRepo).toBeDefined();
       expect(['synced', 'diverged']).toContain(apiRepo?.status);
-      expect(apiRepo?.branches[0].name).toBe('main');
+      expect(apiRepo?.branches[0].name).toBe(apiRepo?.defaultBranch);
 
       const synced = multiRepoService.syncRepository('repo_api_platform');
       expect(['synced', 'diverged']).toContain(synced?.status);

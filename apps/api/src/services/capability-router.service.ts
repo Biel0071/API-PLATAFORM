@@ -1,4 +1,4 @@
-﻿import { execute, registry } from './ai.service';
+import { execute } from './ai.service';
 import { listProviderConfigs } from './provider-config.service';
 
 export interface CapabilityRequest {
@@ -53,7 +53,7 @@ export class CapabilityRouterService {
           model: req.model || this.getDefaultModelForProvider(providerId, req.capability),
           qualityScore: 0.95,
           estimatedLatencyMs: providerId === 'groq' ? 120 : providerId === 'ollama' ? 300 : 450,
-          estimatedCost: providerId === 'ollama' ? 0.0 : 0.0002
+          estimatedCost: providerId === 'ollama' ? 0.0 : 0.0002,
         };
       }
     }
@@ -71,7 +71,7 @@ export class CapabilityRouterService {
     }
   }
 
-  private getDefaultModelForProvider(providerId: string, capability: string): string {
+  private getDefaultModelForProvider(providerId: string, _capability: string): string {
     if (providerId === 'groq') return 'llama-3.3-70b-versatile';
     if (providerId === 'openrouter') return 'meta-llama/llama-3.1-70b-instruct';
     if (providerId === 'ollama') return 'qwen2.5:3b';
@@ -84,26 +84,19 @@ export class CapabilityRouterService {
     const match = await this.resolveBestProvider(req);
     const promptText = req.prompt || (req.messages && req.messages.length > 0 ? req.messages[req.messages.length - 1].content : 'Hello');
 
-    try {
-      const res = await execute(
-        'chat',
-        { prompt: promptText, provider: match.providerId, model: match.model },
-        async (provider) => provider.generateText({ prompt: promptText, model: match.model }) as any,
-        { tenantId: req.tenantId }
-      );
-      return {
-        text: (res.result as any)?.text || promptText,
-        resolvedProvider: match.providerId,
-        resolvedModel: match.model
-      };
-    } catch (error) {
-      // Never manufacture a response when every real provider failed. Callers
-      // must receive the operational error so they can retry or choose another
-      // configured provider.
-      throw error;
-    }
+    // Never manufacture a response when every real provider failed. Callers
+    // must receive the operational error so they can retry or choose another
+    // configured provider.
+    const res = await execute(
+      'chat',
+      { prompt: promptText, provider: match.providerId, model: match.model },
+      async (provider) => provider.generateText({ prompt: promptText, model: match.model }) as any,
+      { tenantId: req.tenantId },
+    );
+    return {
+      text: (res.result as any)?.text || promptText,
+      resolvedProvider: match.providerId,
+      resolvedModel: match.model,
+    };
   }
 }
-
-
-

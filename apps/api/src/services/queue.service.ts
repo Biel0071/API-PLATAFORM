@@ -3,6 +3,7 @@ import { env } from '../config/env';
 import { createBullConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { cacheKey } from '@api-platform/shared';
+import crypto from 'crypto';
 
 export const QUEUE_NAMES = [
   'text',
@@ -65,6 +66,8 @@ export interface EnqueueOptions {
   priority?: number;
   delayMs?: number;
   callback?: CallbackConfig;
+  scopes?: string[];
+  correlationId?: string;
 }
 
 export async function enqueue(
@@ -72,7 +75,22 @@ export async function enqueue(
   payload: Record<string, unknown>,
   opts: EnqueueOptions = {},
 ): Promise<string> {
+  const correlationId = opts.correlationId ?? crypto.randomUUID();
   const { callback: payloadCallback, execution: _execution, ...queuePayload } = payload;
+  const selectedAccountId = typeof queuePayload.providerAccountId === 'string' ? queuePayload.providerAccountId : undefined;
+  if (selectedAccountId) {
+    const { registry, providerAccountPool } = await import('./ai.service');
+    const capability = name === 'image' ? 'image' : name === 'vision' || name === 'ocr' ? 'vision' : name === 'embedding' ? 'embedding' : (name as string) === 'mission' ? 'mission' : 'chat';
+    const requiredScopes = name === 'ocr' ? ['ocr'] : capability === 'embedding' ? ['embed'] : capability === 'mission' ? ['workflow'] : capability === 'chat' ? ['chat', 'text'] : [capability];
+    if (!opts.scopes || (!opts.scopes.includes('*') && !requiredScopes.some((scope) => opts.scopes!.includes(scope)))) {
+      throw Object.assign(new Error('API key lacks permission for this capability'), { status: 403, code: 'INSUFFICIENT_SCOPE' });
+    }
+    const account = await (registry.getAccountPool() ?? providerAccountPool).resolveAccount(selectedAccountId);
+    if (!account || !account.enabled) throw Object.assign(new Error('Provider account not found or disabled'), { status: 404, code: 'PROVIDER_ACCOUNT_NOT_FOUND' });
+    if (queuePayload.provider && queuePayload.provider !== account.providerName) throw Object.assign(new Error('Provider account does not match provider'), { status: 400, code: 'PROVIDER_ACCOUNT_MISMATCH' });
+    if (!account.provider.capabilities.includes(capability)) throw Object.assign(new Error('Provider account does not support this capability'), { status: 400, code: 'CAPABILITY_NOT_SUPPORTED' });
+    queuePayload.provider = account.providerName;
+  }
   const callback = opts.callback ?? payloadCallback as CallbackConfig | undefined;
   const shouldDeduplicate = queuePayload.cache !== false;
   const dedupKey = shouldDeduplicate
@@ -87,7 +105,7 @@ export async function enqueue(
     status: 'waiting',
     priority: opts.priority ?? 5,
     dedupKey,
-    payload: queuePayload as object,
+    payload: { ...queuePayload, __correlationId: correlationId } as object,
   };
 
   let record: { id: string };
@@ -122,14 +140,19 @@ export async function enqueue(
   try {
     await getQueue(name).add(
       name,
-      { ...queuePayload, __jobId: record.id, __tenantId: opts.tenantId, __projectId: opts.projectId, __callback: callback },
+      { ...queuePayload, __jobId: record.id, __tenantId: opts.tenantId, __projectId: opts.projectId, __callback: callback, __correlationId: correlationId },
       { jobId: record.id, priority: opts.priority ?? 5, delay: opts.delayMs },
     );
     return record.id;
   } catch (err) {
+    const statusCode = (err as any)?.statusCode ?? (err as any)?.status;
+    const errorCode = typeof (err as any)?.code === 'string' && /^[A-Z0-9_-]{1,64}$/i.test((err as any).code) ? (err as any).code : undefined;
+    const safeError = typeof statusCode === 'number'
+      ? `Queue dispatch failed (${statusCode})${errorCode ? `: ${errorCode}` : ''}`
+      : errorCode ? `Queue dispatch failed: ${errorCode}` : 'Queue dispatch failed';
     await prisma.job.update({
       where: { id: record.id },
-      data: { status: 'failed', error: err instanceof Error ? err.message.slice(0, 2000) : String(err).slice(0, 2000), finishedAt: new Date() },
+      data: { status: 'failed', error: safeError, finishedAt: new Date() },
     }).catch(() => undefined);
     throw err;
   }

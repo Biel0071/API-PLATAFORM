@@ -1,13 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { ExecutionGateway } from '../../services/execution-gateway.service';
 import { ProviderStream } from '@api-platform/shared';
+import { serializeProviderFailure } from '../../lib/provider-error-serialization';
 
 export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
   fastify.addHook('onRequest', fastify.requireApiKey);
 
   fastify.post('/v1/chat/completions', async (request: any, reply) => {
     console.log('[ENTRY] Recebida requisicao POST /v1/chat/completions');
-    const { messages, model, temperature, max_tokens, stream } = request.body || {};
+    const { messages, model, temperature, max_tokens, stream, tools, tool_choice, response_format } = request.body || {};
+    const capability = request.headers['x-capability'] || (request.query as any)?.capability || request.body?.capability;
+    const pool = request.headers['x-pool'] || (request.query as any)?.pool || request.body?.pool;
+    const routingPolicy = request.headers['x-routing-policy'] || request.body?.routingPolicy || request.body?.routing_policy;
+    const dualLane = request.body?.dualLane ?? request.body?.dual_lane;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return reply.status(400).send({
@@ -20,11 +25,20 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
     try {
       const { ctx, response } = await ExecutionGateway.execute(tenantId, {
         messages: messages,
-        model,
+        model: model || pool || capability || 'auto',
+        capability,
+        provider: request.body?.provider,
+        providerAccountId: request.body?.providerAccountId,
+        routingPolicy,
+        pool,
         temperature,
         maxTokens: max_tokens,
-        stream
-      }, stream);
+        tools,
+        toolChoice: tool_choice,
+        format: response_format?.type === 'json_object' ? 'json' : undefined,
+        stream,
+        dualLane,
+      }, stream, { scopes: request.auth?.scopes });
 
       const completionId = `chatcmpl-${Date.now()}`;
       const timestamp = Math.floor(Date.now() / 1000);
@@ -35,14 +49,14 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
         executionId: ctx.executionId,
         mode: ctx.decision?.mode,
         transport: ctx.decision?.transport,
-        provider: 'auto', // Seria preenchido dinamicamente se o ProviderRegistry retornar o ID
+        provider: (ctx.metrics as any)?.provider || (response as any).provider || 'auto',
         cache: ctx.cacheHit,
         planner: ctx.plannerUsed,
         queue: ctx.queueUsed,
-        // latency: ctx.metrics?.totalLatency || ctx.metrics?.latency || 0,
         cost: ctx.complexity?.estimatedCost || 0,
         metrics: ctx.metrics,
-        trace: ctx.trace
+        trace: ctx.trace,
+        system1Decision: ctx.metadata?.system1Decision,
       };
 
       if ('stream' in response && response.stream) {
@@ -56,10 +70,6 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
         // 1. Opcional: Alguns clientes quebram se receberem custom events, então removemos o `event: ...` dos principais
         reply.raw.write(`data: ${JSON.stringify({ _gateway: gatewayTrace })}\n\n`);
 
-        // 2. Envia Status Inicial (como um comentário ou custom chunk que não quebre)
-        // const statusMsg = ctx.decision?.mode === 'FAST' ? '⚡ Fast Response' : (ctx.decision?.mode === 'WORKFLOW' ? '⚙️ Executando Workflow' : '🧠 AI Thinking');
-        // reply.raw.write(`data: ${JSON.stringify({ message: statusMsg })}\n\n`);
-
         const heartbeat = setInterval(() => {
           reply.raw.write(':ping\n\n');
         }, 15000);
@@ -67,6 +77,32 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
         try {
           const streamResponse = response as ProviderStream;
           let roleSent = false;
+
+          // Se for cascata com System 1 fastResponse, emite chunk inicial da decisão semântica
+          if ((dualLane || request.body?.cascade) && ctx.metadata?.system1Decision?.fastResponse) {
+            const rolePayload = {
+              id: completionId,
+              object: 'chat.completion.chunk',
+              created: timestamp,
+              model: streamResponse.model,
+              choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }]
+            };
+            reply.raw.write(`data: ${JSON.stringify(rolePayload)}\n\n`);
+            roleSent = true;
+
+            const fastChunk = {
+              id: completionId,
+              object: 'chat.completion.chunk',
+              created: timestamp,
+              model: streamResponse.model,
+              choices: [{ 
+                index: 0, 
+                delta: { content: `/* ${ctx.metadata.system1Decision.fastResponse} */\n\n` }, 
+                finish_reason: null 
+              }]
+            };
+            reply.raw.write(`data: ${JSON.stringify(fastChunk)}\n\n`);
+          }
           
           for await (const chunk of streamResponse.chunks) {
             if (chunk.type === 'status') {
@@ -168,13 +204,15 @@ export async function registerOpenAICompatRoutes(fastify: FastifyInstance) {
         });
       }
     } catch (err: any) {
-      fastify.log.error(err);
-      return reply.status(err.status || 500).send({
+      const safeError = serializeProviderFailure(err);
+      const { statusCode, errorCode } = safeError;
+      fastify.log.warn({ statusCode, errorCode }, 'OpenAI compatibility request failed');
+      return reply.status(statusCode).send({
         error: {
-          message: err.message || 'Internal Server Error',
+          message: safeError.message,
           type: 'api_error',
-          code: err.status || 500
-        }
+          code: statusCode,
+        },
       });
     }
   });

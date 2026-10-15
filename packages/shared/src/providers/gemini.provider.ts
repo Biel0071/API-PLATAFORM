@@ -13,7 +13,9 @@ import {
 } from '../types';
 
 export interface GeminiConfig {
-  apiKey: string;
+  apiKey?: string;
+  accessToken?: string;
+  oauthProjectId?: string;
   baseUrl?: string;
   defaultModel?: string;
   embedModel?: string;
@@ -30,8 +32,18 @@ export class GeminiProvider extends BaseProvider {
 
   private url(path: string): string {
     const base = (this.config.baseUrl ?? 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
+    if (this.config.accessToken) return `${base}${path}`;
     const sep = path.includes('?') ? '&' : '?';
     return `${base}${path}${sep}key=${this.config.apiKey}`;
+  }
+
+  private get headers(): Record<string, string> {
+    return this.config.accessToken
+      ? {
+          authorization: `Bearer ${this.config.accessToken}`,
+          ...(this.config.oauthProjectId ? { 'x-goog-user-project': this.config.oauthProjectId } : {}),
+        }
+      : {};
   }
 
   private model(model?: string): string {
@@ -90,6 +102,7 @@ export class GeminiProvider extends BaseProvider {
 
     const data = await this.http<any>(this.url(`/v1beta/models/${model}:generateContent`), {
       method: 'POST',
+      headers: this.headers,
       body,
       timeoutMs: 180_000,
     });
@@ -144,6 +157,7 @@ export class GeminiProvider extends BaseProvider {
     const texts = Array.isArray(input.input) ? input.input : [input.input];
     const data = await this.http<any>(this.url(`/v1beta/models/${model}:batchEmbedContents`), {
       method: 'POST',
+      headers: this.headers,
       body: {
         requests: texts.map((t) => ({
           model: `models/${model}`,
@@ -157,7 +171,7 @@ export class GeminiProvider extends BaseProvider {
   }
 
   async models(): Promise<ModelInfo[]> {
-    const data = await this.http<any>(this.url('/v1beta/models'), { timeoutMs: 15_000 });
+    const data = await this.http<any>(this.url('/v1beta/models'), { headers: this.headers, timeoutMs: 15_000 });
     return (data?.models ?? []).map((m: any) => ({
       id: String(m.name ?? '').replace(/^models\//, ''),
       name: m.displayName,

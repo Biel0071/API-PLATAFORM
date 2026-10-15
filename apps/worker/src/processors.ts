@@ -1,5 +1,5 @@
 import { promisify } from 'node:util';
-import type { Job } from 'bullmq';
+import { UnrecoverableError, type Job } from 'bullmq';
 import { execFile } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
@@ -23,11 +23,21 @@ import {
   resolveAllowedCategory,
   StandardResponse,
   TaskHint,
+  resolveProviderAccountTargets,
+  ProviderAttemptTracker,
+  createProviderAttemptContext,
+  providerAttemptData,
+  ProviderAttemptContext,
 } from '@api-platform/shared';
 import { PrismaClient } from '@prisma/client';
 import { getModelTraits } from '@api-platform/shared';
 
 const prisma = new PrismaClient();
+const providerAttemptTracker = new ProviderAttemptTracker({
+  loadPrices: (provider) => prisma.modelConfig.findMany({ where: { provider: { name: provider } } }),
+  record: async (record) => { await prisma.providerAttempt.create({ data: providerAttemptData(record) }); },
+  onError: () => console.warn('[WORKER] Provider attempt observation could not be persisted'),
+});
 const execFileAsync = promisify(execFile);
 
 /**
@@ -109,21 +119,44 @@ async function runWithFallback<T>(
   requested: string | undefined,
   fn: (provider: AIProvider, routedModel: string | undefined) => Promise<any>,
   task?: TaskHint,
+  data?: Record<string, any>,
+  sharedAttemptContext?: ProviderAttemptContext,
 ): Promise<StandardResponse<T>> {
   let lastError: unknown;
-  const candidates = await registry.resolveCandidates(capability, requested, fallbackOrder);
-  const ready = candidates.filter((provider) => !providerCircuit.isOpen(`${provider.name}:${capability}`));
-  const runnable = ready.length ? ready : candidates.slice(0, 1);
-  for (const provider of runnable) {
-    const circuitKey = `${provider.name}:${capability}`;
+  const accountId = data?.providerAccountId;
+  const attemptContext = sharedAttemptContext ?? createProviderAttemptContext({ correlationId: data?.__correlationId ?? data?.__jobId });
+  if (data) {
+    delete data.providerAccountId;
+    delete data.__correlationId;
+    delete data.__jobId;
+    delete data.__tenantId;
+    delete data.__projectId;
+    delete data.__callback;
+    delete data.execution;
+  }
+  const accountPool = registry.getAccountPool();
+  if (accountId && !accountPool) throw new UnrecoverableError('Provider account runtime is unavailable');
+  const targets = accountPool
+    ? await resolveProviderAccountTargets(registry, accountPool, capability, requested, accountId)
+    : (await registry.resolveCandidates(capability, requested, fallbackOrder)).map((provider) => ({ accountId: '', providerName: provider.name, provider }));
+  const runnable = accountId ? targets : targets.filter((target) => !providerCircuit.isOpen(`${target.providerName}:${capability}${target.accountId ? `:${target.accountId}` : ''}`));
+  const candidates = runnable.length ? runnable : targets.slice(0, 1);
+  for (const target of candidates) {
+    const provider = target.provider;
+    const circuitKey = `${provider.name}:${capability}${target.accountId ? `:${target.accountId}` : ''}`;
     try {
       const routedModel = pickModel(capability, task, provider.name, process.env);
-      const result = await run<T>(provider, () => fn(provider, routedModel));
+      const result = await run<T>(provider, () => fn(providerAttemptTracker.provider(attemptContext, provider, target.accountId || undefined), routedModel));
       providerCircuit.recordSuccess(circuitKey);
       return result;
     } catch (err) {
       lastError = err;
       providerCircuit.recordFailure(circuitKey);
+      const failure = err as { status?: number; statusCode?: number; code?: string; retryable?: boolean };
+      const status = failure?.statusCode ?? failure?.status;
+      const retryable = status === 408 || status === 425 || status === 429 || (typeof status === 'number' && status >= 500) || failure?.retryable === true || ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN'].includes(failure?.code ?? '');
+      if (!retryable) throw new UnrecoverableError('Provider request failed');
+      if (accountId) throw err;
     }
   }
   throw lastError ?? new Error(`No provider available for ${capability}`);
@@ -299,12 +332,12 @@ export const textProcessor: ProcessorFn = async (job, registry) => {
   if (data.messages) {
     data.messages = await processVideoInMessages(data.messages, data.filePath);
     return runWithFallback(registry, 'chat', data.provider, (provider, routedModel) =>
-      provider.chat({ ...data, model: data.model ?? routedModel }), data.task ?? 'general',
+      provider.chat({ ...data, model: data.model ?? routedModel }), data.task ?? 'general', data,
     );
   }
 
   return runWithFallback(registry, 'chat', data.provider, (provider, routedModel) =>
-    provider.generateText({ ...data, model: data.model ?? routedModel }), data.task ?? 'general',
+    provider.generateText({ ...data, model: data.model ?? routedModel }), data.task ?? 'general', data,
   );
 };
 
@@ -315,7 +348,7 @@ export const visionProcessor: ProcessorFn = async (job, registry) => {
   if (data.messages) {
     data.messages = await processVideoInMessages(data.messages, data.filePath);
     return runWithFallback(registry, 'vision', data.provider, (provider, routedModel) =>
-      provider.vision({ ...data, model: data.model ?? routedModel }), 'vision',
+      provider.vision({ ...data, model: data.model ?? routedModel }), 'vision', data,
     );
   }
 
@@ -333,7 +366,7 @@ export const visionProcessor: ProcessorFn = async (job, registry) => {
     throw new Error('validation: vision job requires at least one image');
   }
   return runWithFallback(registry, 'vision', data.provider, (provider, routedModel) =>
-    provider.vision({ prompt: data.prompt, images: data.images, model: data.model ?? routedModel, maxTokens: data.maxTokens }), 'vision',
+    provider.vision({ prompt: data.prompt, images: data.images, model: data.model ?? routedModel, maxTokens: data.maxTokens }), 'vision', data,
   );
 };
 
@@ -372,15 +405,14 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
   const data = job.data as Record<string, any>;
   await releaseOllamaMemoryForImage();
   if (data.__kind === 'multiangle') {
-    const provider = await registry.resolve('image', data.provider) as any;
-    return run(provider, async () => {
+    return runWithFallback(registry, 'image', data.provider, async (provider) => {
       const count = Math.min(Math.max(Number(data.count) || 5, 1), 8);
       const elevation = Number(data.elevation) || 0;
       const images: any[] = [];
       let usedModel = data.model ?? 'stable_zero123';
       for (let i = 0; i < count; i++) {
         const azimuth = (360 / count) * i;
-        const res = await provider.generateMultiAngleView({
+        const res = await (provider as any).generateMultiAngleView({
           image: data.image,
           elevation,
           azimuth,
@@ -395,11 +427,10 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
         usedModel = res.model;
       }
       return { result: { images }, model: usedModel };
-    });
+    }, undefined, data);
   }
   if (data.__kind === 'gallery') {
-    const provider = await registry.resolve('image', data.provider);
-    return run(provider, async () => {
+    return runWithFallback(registry, 'image', data.provider, async (provider) => {
       const requestedCount = Math.min(Math.max(Number(data.count) || 5, 1), 10);
       const configuredMax = Math.min(Math.max(Number(process.env.GALLERY_MAX_IMAGES_PER_JOB) || 10, 1), 10);
       const count = Math.min(requestedCount, configuredMax);
@@ -421,7 +452,7 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
         usedModel = res.model;
       }
       return { result: { images }, model: usedModel };
-    });
+    }, undefined, data);
   }
   if (data.__kind === 'video-to-image') {
     const dir = await mkdtemp(path.join(tmpdir(), 'apiplatform-video-'));
@@ -442,7 +473,7 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
       if (!files.length) throw new Error('video sem frames extraiveis');
       const frames = await Promise.all(files.map(async (name) => (await readFile(path.join(dir, name))).toString('base64')));
       return runWithFallback(registry, 'image', data.provider, (provider) =>
-        (provider as unknown as ImageProvider).videoToImage(frames, data as any),
+        (provider as unknown as ImageProvider).videoToImage(frames, data as any), undefined, data,
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -457,17 +488,17 @@ export const imageProcessor: ProcessorFn = async (job, registry) => {
   }
   if (data.__kind === 'upscale') {
     return runWithFallback(registry, 'image', data.provider, (provider) =>
-      (provider as any).upscale({ image: data.image, scale: data.scale, model: data.model }),
+      (provider as any).upscale({ image: data.image, scale: data.scale, model: data.model }), undefined, data,
     );
   }
-  return runWithFallback(registry, 'image', data.provider, (provider) => provider.generateImage(data as any));
+  return runWithFallback(registry, 'image', data.provider, (provider) => provider.generateImage(data as any), undefined, data);
 };
 
 // ---------- Worker Embedding ----------
 export const embeddingProcessor: ProcessorFn = async (job, registry) => {
   const data = job.data as { input: string | string[]; provider?: string; model?: string };
   return runWithFallback(registry, 'embedding', data.provider, (provider, routedModel) =>
-    provider.embed({ ...data, model: data.model ?? routedModel }), 'embed',
+    provider.embed({ ...data, model: data.model ?? routedModel }), 'embed', data,
   );
 };
 
@@ -515,7 +546,7 @@ export const ocrProcessor: ProcessorFn = async (job, registry) => {
     'preservando quebras de linha. Nao adicione comentarios.' +
     (data.language ? ` Idioma esperado: ${data.language}.` : '');
   return runWithFallback(registry, 'vision', data.provider, (provider, routedModel) =>
-    provider.vision({ prompt, images: [data.image as string], model: data.model ?? routedModel }), 'ocr',
+    provider.vision({ prompt, images: [data.image as string], model: data.model ?? routedModel }), 'ocr', data,
   );
 };
 
@@ -566,7 +597,7 @@ export const seoProcessor: ProcessorFn = async (job, registry) => {
   ].join('\n');
 
   const res = await runWithFallback(registry, 'chat', data.provider, (provider, routedModel) =>
-    provider.generateText({ prompt, model: data.model ?? routedModel, json: true }), 'seo',
+    provider.generateText({ prompt, model: data.model ?? routedModel, json: true }), 'seo', data,
   );
   // tenta estruturar o JSON gerado
   try {
@@ -597,7 +628,7 @@ export const translationProcessor: ProcessorFn = async (job, registry) => {
     const res = await provider.generateText({ prompt, model: data.model ?? routedModel });
     if ('stream' in res) throw new Error('Streaming not supported');
     return res as import('@api-platform/shared').ProviderResult<{ text: string }>;
-  }, 'translation');
+  }, 'translation', data);
 };
 
 // ---------- Worker Classificacao ----------
@@ -613,7 +644,7 @@ export const classificationProcessor: ProcessorFn = async (job, registry) => {
     const r = await provider.generateText({ prompt, model: data.model ?? routedModel });
     if ('stream' in r) throw new Error('Streaming not supported');
     return r as import('@api-platform/shared').ProviderResult<{ text: string }>;
-  }, task);
+  }, task, data);
   const raw = (res.result as { text: string }).text.trim();
   const category = resolveAllowedCategory(raw, data.categories);
   return { ...res, result: { category, raw } };
@@ -680,7 +711,7 @@ export const audioProcessor: ProcessorFn = async (job, registry) => {
     }
   }
   return runWithFallback(registry, 'audio', data.provider, (provider, routedModel) =>
-    provider.audio ? provider.audio({ ...data, model: data.model ?? routedModel }) : (provider as any).notSupported('audio'), 'general',
+    provider.audio ? provider.audio({ ...data, model: data.model ?? routedModel }) : (provider as any).notSupported('audio'), 'general', data,
   );
 };
 
@@ -688,7 +719,7 @@ export const audioProcessor: ProcessorFn = async (job, registry) => {
 export const missionProcessor: ProcessorFn = async (job, registry) => {
   const data = job.data as any;
   return runWithFallback(registry, 'mission', data.provider, (provider, routedModel) =>
-    provider.mission ? provider.mission({ ...data, model: data.model ?? routedModel }) : (provider as any).notSupported('mission'), 'general',
+    provider.mission ? provider.mission({ ...data, model: data.model ?? routedModel }) : (provider as any).notSupported('mission'), 'general', data,
   );
 };
 
@@ -701,7 +732,7 @@ export const orchestratorProcessor: ProcessorFn = async (job, registry) => {
   const executionId = `exec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   
   const lastUserMsg = originalMessages.findLast((m: any) => m.role === 'user');
-  let userText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
+  let userText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : (typeof data.prompt === 'string' ? data.prompt : '');
   if (!userText.trim()) throw new Error('Empty prompt rejected by filter');
 
   const budget: ExecutionBudget = {
@@ -721,6 +752,8 @@ export const orchestratorProcessor: ProcessorFn = async (job, registry) => {
   const context: ExecutionContext = {
     executionId: job.id!,
     traceId: job.id!,
+    correlationId: data.__correlationId,
+    providerAccountId: data.providerAccountId,
     tenant: 'default',
     metadata: {},
     budget,
@@ -732,10 +765,12 @@ export const orchestratorProcessor: ProcessorFn = async (job, registry) => {
 
   // 2. Schedule and execute DAG
   const renderer = new PromptRenderer();
-  const scheduler = new SmartScheduler(context, registry, renderer, tracer);
+  const attemptContext = createProviderAttemptContext({ correlationId: data.__correlationId ?? job.id });
+  const observedScheduler = new SmartScheduler(context, registry, renderer, tracer,
+    (provider, accountId) => providerAttemptTracker.provider(attemptContext, provider, accountId));
   
   console.log(`[${executionId}] Start DAG Execution. Nodes: ${plan.nodes.length}`);
-  const trace: ExecutionTrace = await scheduler.executePlan();
+  const trace: ExecutionTrace = await observedScheduler.executePlan();
   
   trace.plannerTimeMs = plannerTimeMs;
   
@@ -796,7 +831,14 @@ export const multimodelProcessor: ProcessorFn = async (job, registry) => {
   const models = data.models ?? { tier: 'fast' }; 
   
   const start = Date.now();
-  const responses = await router.executeMultiModel(data, models);
+  const { ModelTiers } = await import('@api-platform/shared');
+  const targetModels = Array.isArray(models) ? models : ModelTiers[models.tier as keyof typeof ModelTiers];
+  const attemptContext = createProviderAttemptContext({ correlationId: data.__correlationId ?? job.id });
+  const responses = await Promise.all(targetModels.map((model: string) => {
+    const providerName = data.provider ?? router.resolveProviderForModel(model, 'chat');
+    const modelData = { ...data, model };
+    return runWithFallback(registry, 'chat', providerName, (provider) => provider.chat({ ...modelData, model }), undefined, modelData, attemptContext);
+  }));
   
   return ok({
     provider: 'multimodel',

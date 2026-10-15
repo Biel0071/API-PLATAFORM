@@ -7,7 +7,13 @@ Sempre que o robô (Playwright ou API Flood) encontrar um erro, uma checkbox ser
 
 ## Falhas Pendentes (Ação Requerida)
 
-*(Fila limpa — ver Falhas Resolvidas abaixo)*
+- [x] **PROVIDER-UI-01 — 2026-10-14:** Pop-up de provedores mantém o ciclo de Tab/Shift+Tab, fecha sem erro ao navegar e devolve o foco ao fechar. Regressão coberta pela suíte `qa/e2e/provider-connections.spec.ts`.
+
+- [ ] **CLOUD-PROVIDERS-01 — 2026-09-16:** Chave Groq já configurada, mas `GET /openai/v1/models` no endpoint oficial retorna HTTP 403 a partir do computador e da VPS .22. Resposta local: bloqueio de acesso/rede. Validar acesso e permissões antes de usar Groq como fallback operacional; não confundir chave presente com provider disponível.
+- [x] **QA-OLLAMA-01 — 2026-10-15:** teste isolado com provider determinístico em `apps/api/tests/decision-and-cascade.test.ts`; verifica que `data.prompt` chega à chamada de inferência sem depender de um Ollama local. Validado com `npm test -w apps/api -- decision-and-cascade.test.ts` (17/17).
+- [ ] **VPS-MODELS-03 — 2026-09-16:** Qwen3.5 0.8B reconhece a capacidade `vision`, porém no smoke com PNG uniforme vermelho respondeu `verde` em 49,30 s. Texto simples respondeu corretamente. Não promover visão/OCR como capacidade validada; avaliar modelo maior ou alternativa com dataset representativo.
+- [ ] **VPS-MODELS-02 — 2026-09-16:** DeepSeek-R1 1.5B instalado na `.22`, mas o smoke de aritmética em `/api/chat` excedeu 240 s sob carga alta (CPU, contexto 2048, duas threads, limite 160 tokens). Modelo descarregado após o teste. Não promover a padrão nem afirmar ganho de capacidade até medir inferência útil com latência aceitável.
+- [ ] **VPS-MODELS-01 — 2026-09-16:** Na VPS `.22`, o container `grg-fenix-enterprise-api-1` tem `FENIX_OLLAMA_URL=http://ollama:11434`, mas a consulta real a `/api/tags` falha. As sondas ao gateway `172.21.0.1` e ao IP da VPS também falharam a partir desse container; no host, Ollama responde. Corrigir conectividade privada e validar inferência pelo fluxo autenticado antes de anunciar os novos modelos integrados ao FÊNIX. Não confundir instalação no Ollama com disponibilidade no gateway.
 
 ## Falhas Resolvidas
 

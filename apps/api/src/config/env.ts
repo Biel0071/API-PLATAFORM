@@ -14,6 +14,13 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(6).default('admin123'),
   DEFAULT_API_KEY: z.string().optional(),
 
+  HUGGINGFACE_OAUTH_CLIENT_ID: z.string().optional(),
+  HUGGINGFACE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GEMINI_OAUTH_CLIENT_ID: z.string().optional(),
+  GEMINI_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GEMINI_OAUTH_PROJECT_ID: z.string().optional(),
+  OAUTH_PUBLIC_BASE_URL: z.string().url().optional(),
+
   CORS_ORIGINS: z.string().default('http://localhost:8080,http://127.0.0.1:8080'),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),

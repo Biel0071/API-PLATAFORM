@@ -1,5 +1,6 @@
 import { DagPlan, DagNode, ExecutionContext, ExecutionTrace } from '@api-platform/shared';
 import { PromptRenderer } from './prompt-renderer';
+import { resolveProviderAccountTargets } from '@api-platform/shared';
 
 // Simple concurrency limiter
 function pLimit(concurrency: number) {
@@ -42,7 +43,8 @@ export class SmartScheduler {
     private readonly context: ExecutionContext,
     private readonly registry: any,
     private readonly renderer: PromptRenderer,
-    private readonly tracer?: import('@api-platform/shared').IExecutionTracer
+    private readonly tracer?: import('@api-platform/shared').IExecutionTracer,
+    private readonly observeProvider?: (provider: import('@api-platform/shared').AIProvider, accountId?: string) => import('@api-platform/shared').AIProvider,
   ) {}
 
   async executePlan(): Promise<ExecutionTrace> {
@@ -107,14 +109,22 @@ export class SmartScheduler {
         // We do fallback loop natively inside the node execution (Chaos handling)
         
         // Obter providers que suportam a capability
-        const candidates = this.registry.resolveCandidates(node.capability || 'chat');
+        const capability = node.capability || 'chat';
+        const accountPool = this.registry.getAccountPool?.();
+        if (this.context.providerAccountId && !accountPool) throw new Error('Provider account runtime is unavailable');
+        const targets = accountPool
+          ? await resolveProviderAccountTargets(this.registry, accountPool, capability, undefined, this.context.providerAccountId)
+          : (await this.registry.resolveCandidates(capability)).map((provider: any) => ({ provider, accountId: '', providerName: provider.name }));
+        const candidates = targets;
         
         if (!candidates || candidates.length === 0) {
           throw new Error(`No provider found for capability ${node.capability}`);
         }
         
         while (fallbackAttempt <= maxRetries && !success) {
-           const providerObj = candidates[fallbackAttempt % candidates.length];
+           const target = candidates[fallbackAttempt];
+           if (!target) break;
+           const providerObj = this.observeProvider ? this.observeProvider(target.provider, target.accountId || undefined) : target.provider;
            try {
              if (Date.now() - (globalStartTime || Date.now()) > budget.maxExecutionTimeMs) {
                 throw new Error('Execution budget timeout exceeded');
@@ -152,6 +162,9 @@ export class SmartScheduler {
              });
            } catch (err: any) {
              lastError = err;
+             const status = err?.statusCode ?? err?.status;
+             const retryable = status === 408 || status === 425 || status === 429 || (typeof status === 'number' && status >= 500) || ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN'].includes(err?.code ?? '');
+             if (!retryable || this.context.providerAccountId) throw err;
              fallbackAttempt++;
              if (fallbackAttempt <= maxRetries) {
                 fallbacks++;

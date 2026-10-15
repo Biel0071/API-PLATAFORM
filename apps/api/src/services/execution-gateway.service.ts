@@ -1,19 +1,20 @@
 import { 
   ExecutionContext, 
-  ExecutionDecision, 
   ExecutionMode, 
   ExecutionTransport,
   ProviderResponse, 
   Capability,
   ProviderError,
-  MemoryExecutionTracer
+  MemoryExecutionTracer,
+  LayaProvider,
+  createProviderAttemptContext,
 } from '@api-platform/shared';
 import { cacheService } from './cache.service';
 import { ComplexityAnalyzer } from './complexity.analyzer';
 import { FastIntentClassifier } from './intent.classifier';
 import { ExecutionDispatcher } from './dispatcher.service';
-import { ProviderRegistry, compressContext, getModelTraits } from '@api-platform/shared';
-import { registry, providerCircuit, fallbackOrder } from './ai.service';
+import { compressContext, getModelTraits } from '@api-platform/shared';
+import { registry, providerCircuit, fallbackOrder, providerAccountPool } from './ai.service';
 import { enqueueAndWait } from './queue.service';
 import { apiLayerTools, APILayerRegistry } from './apilayer.registry';
 import crypto from 'crypto';
@@ -21,6 +22,27 @@ import { TaskClassifier } from './task-classifier.service';
 import { PromptOptimizer } from './prompt-optimizer.service';
 import { rememberExecutionSuccess } from './execution-memory.service';
 import { refineResponse } from './refinement.service';
+import { smartRouterService } from './smart-router.service';
+import { BackgroundOrchestratorService } from './background-orchestrator.service';
+import { providerAttemptTracker } from './provider-attempt.service';
+
+function isTransientProviderFailure(error: any): boolean {
+  const status = error?.statusCode ?? error?.status;
+  if (typeof status === 'number') return status === 408 || status === 425 || status === 429 || status >= 500;
+  return error?.retryable === true || ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN'].includes(error?.code ?? '');
+}
+
+function safeProviderFailure(error: any): { statusCode?: number; errorCode?: string; message: string } {
+  const statusCode = error?.statusCode ?? error?.status;
+  const errorCode = typeof error?.code === 'string' && /^[A-Z0-9_-]{1,64}$/i.test(error.code) ? error.code : undefined;
+  return {
+    statusCode: typeof statusCode === 'number' ? statusCode : undefined,
+    errorCode,
+    message: typeof statusCode === 'number'
+      ? `Provider request failed (${statusCode})${errorCode ? `: ${errorCode}` : ''}`
+      : errorCode ? `Provider request failed: ${errorCode}` : 'Provider request failed',
+  };
+}
 
 export interface Executor {
   execute(ctx: ExecutionContext, input: any): Promise<ProviderResponse<any>>;
@@ -28,14 +50,87 @@ export interface Executor {
 
 export class DirectExecutor implements Executor {
   async execute(ctx: ExecutionContext, input: any): Promise<ProviderResponse<any>> {
+    const attemptContext = ctx.attemptContext ??= createProviderAttemptContext({ correlationId: ctx.correlationId ?? ctx.traceId, executionId: ctx.executionId });
     console.log('[GATEWAY] Entrando no DirectExecutor com input:', { model: input.model, messageCount: input.messages?.length });
-    let capability: Capability = 'chat';
-    if (ctx.complexity?.requiresVision) capability = 'vision';
+    let capability: Capability = input.capability === 'vision' || ctx.complexity?.requiresVision ? 'vision' : 'chat';
     
     let targetModel = input.model || 'auto';
     const originalMessages = input.messages || [];
     let currentMessages = [...originalMessages];
+
+    // An explicitly selected connection is authoritative: validate its
+    // provider/capability and never let smart routing silently switch it.
+    if (ctx.providerAccountId) {
+      const pool = registry.getAccountPool() ?? providerAccountPool;
+      const account = await pool.resolveAccount(ctx.providerAccountId);
+      if (!account || !account.enabled) throw Object.assign(new Error('Provider account not found or disabled'), { status: 404, code: 'PROVIDER_ACCOUNT_NOT_FOUND' });
+      if (input.provider && input.provider !== account.providerName) throw Object.assign(new Error('Provider account does not match provider'), { status: 400, code: 'PROVIDER_ACCOUNT_MISMATCH' });
+      if (!account.provider.capabilities.includes(capability)) throw Object.assign(new Error('Provider account does not support this capability'), { status: 400, code: 'CAPABILITY_NOT_SUPPORTED' });
+      const { providerAccountId: _providerAccountId, ...providerInput } = input;
+      providerInput.model = targetModel === 'auto' ? undefined : targetModel;
+      return providerAttemptTracker.observe<ProviderResponse<any>>(attemptContext, { provider: account.providerName, providerAccountId: account.accountId, capability, model: providerInput.model },
+        () => capability === 'vision' ? account.provider.vision(providerInput) : account.provider.chat(providerInput));
+    }
     
+    // 1. Tenta roteamento inteligente baseado em capacidades, pools, health e quotas
+    try {
+      const routeDecision = await smartRouterService.route(input, {
+        requestedModel: targetModel,
+        routingPolicy: input.routingPolicy || input.routing_policy || ctx.routingPolicy,
+      });
+      ctx.trace?.push({
+        type: 'smart_route_selected',
+        timestamp: Date.now(),
+        metadata: {
+          pool: routeDecision.pool,
+          primary: routeDecision.primary.model,
+          provider: routeDecision.primary.provider,
+          score: routeDecision.primary.score,
+          fallbackCount: routeDecision.fallbackChain.length,
+        },
+      } as any);
+
+      const modelTraits = getModelTraits(routeDecision.primary.model);
+      const maxContext = modelTraits.maxContextTokens || 8192;
+      const { compressedMessages, compressedSystem } = compressContext(currentMessages, maxContext, input.system);
+
+      const providerInput = {
+        ...input,
+        messages: compressedMessages,
+        system: compressedSystem,
+      };
+
+      const executionResult = await smartRouterService.executeWithSmartFallback(
+        providerInput,
+        routeDecision,
+        {
+          tenantId: ctx.tenant,
+          projectId: input.projectId,
+          attemptContext,
+          onCandidateAttempt: (candidate, attempt) => {
+            ctx.trace?.push({
+              type: 'candidate_attempt',
+              timestamp: Date.now(),
+              metadata: { provider: candidate.provider, model: candidate.model, attempt },
+            } as any);
+          },
+        },
+      );
+
+      ctx.metrics = {
+        ...ctx.metrics,
+        provider: executionResult.selectedCandidate.provider,
+        model: executionResult.selectedCandidate.model,
+        retries: executionResult.attempts.length - 1,
+      } as any;
+
+      return executionResult.result;
+    } catch (smartError: any) {
+      if (registry.getAccountPool() && !isTransientProviderFailure(smartError)) throw smartError;
+      const safeError = safeProviderFailure(smartError);
+      console.warn('[SMART_ROUTER] Fallback para cascata padrão devido a:', safeError.message);
+    }
+
     // Lista de fallback baseada na ordem configurada
     let cascade = [...fallbackOrder];
     
@@ -49,12 +144,28 @@ export class DirectExecutor implements Executor {
       } else {
         cascade = ['anthropic', ...cascade.filter(p => p !== 'anthropic')];
       }
+    } else if (targetModel.toLowerCase().includes('deepseek') || targetModel.toLowerCase().includes('coder')) {
+      if (cascade.includes('ollama')) {
+        cascade = ['ollama', ...cascade.filter(p => p !== 'ollama')];
+      } else if (cascade.includes('deepseek')) {
+        cascade = ['deepseek', ...cascade.filter(p => p !== 'deepseek')];
+      }
+    } else if (targetModel.toLowerCase().includes('kimi') || targetModel.toLowerCase().includes('moonshot')) {
+      if (cascade.includes('kimi')) {
+        cascade = ['kimi', ...cascade.filter(p => p !== 'kimi')];
+      }
     }
     
     const errors: any[] = [];
     
     for (const providerName of cascade) {
       console.log(`[FALLBACK] Tentando provider: ${providerName}`);
+      const accountPool = registry.getAccountPool();
+      if (accountPool && await accountPool.hasConfiguredAccounts(providerName)) {
+        // A provider with account-backed credentials may be retried only via
+        // those instances; never fall through to its legacy environment config.
+        continue;
+      }
       if (providerCircuit.isOpen(providerName)) {
          ctx.trace?.push({ type: 'circuit_breaker', timestamp: Date.now(), metadata: { providerName } } as any);
          continue; // Provider ignorado porque esta unhealthy
@@ -91,12 +202,18 @@ export class DirectExecutor implements Executor {
       } else if (providerName === 'anthropic' && isOpenAI) {
         overrideModel = 'auto';
       } else if (providerName === 'ollama') {
-        overrideModel = 'auto';
+        if (isAnthropic || isOpenAI || t === 'auto') {
+          overrideModel = (provider as any)?.config?.defaultModel || 'qwen2.5:3b';
+        }
       }
+
+      const resolvedModel = overrideModel !== 'auto'
+        ? overrideModel
+        : ((provider as any)?.config?.defaultModel || (providerName === 'ollama' ? 'qwen2.5:3b' : undefined));
 
       const providerInput = {
         ...input,
-        model: overrideModel !== 'auto' ? overrideModel : undefined,
+        model: resolvedModel,
         messages: compressedMessages,
         system: compressedSystem
       };
@@ -112,9 +229,9 @@ export class DirectExecutor implements Executor {
         console.log(`[PROVIDER] Fazendo chamada ao provedor ${providerName} (attempt ${attempt + 1})`);
         try {
           if (capability === 'vision') {
-            successResponse = await provider.vision(providerInput);
+            successResponse = await providerAttemptTracker.observe(attemptContext, { provider: provider.name, capability, model: providerInput.model }, () => provider.vision(providerInput));
           } else {
-            successResponse = await provider.chat(providerInput);
+            successResponse = await providerAttemptTracker.observe(attemptContext, { provider: provider.name, capability, model: providerInput.model }, () => provider.chat(providerInput));
           }
           providerCircuit.recordSuccess(providerName);
           break; // Sucesso!
@@ -129,7 +246,7 @@ export class DirectExecutor implements Executor {
              attempt++;
              if (attempt >= maxAttempts) {
                 providerCircuit.recordFailure(providerName);
-                errors.push(error);
+                errors.push({ provider: providerName, ...safeProviderFailure(error) });
                 break;
              }
              // Backoff exponencial: 1s, 2s, 4s, 8s...
@@ -151,9 +268,20 @@ export class DirectExecutor implements Executor {
              continue; 
           }
           
+          if ((status === 404 || msgString.includes('not found')) && providerName === 'ollama') {
+            const fallbackLocal = (provider as any)?.config?.defaultModel || 'qwen2.5:3b';
+            if (providerInput.model !== fallbackLocal) {
+              console.log(`[RETRY] Modelo ${providerInput.model} não instalado no Ollama. Tentando modelo local disponível: ${fallbackLocal}`);
+              providerInput.model = fallbackLocal;
+              attempt++;
+              continue;
+            }
+          }
+          
           // Outros erros
           providerCircuit.recordFailure(providerName);
-          errors.push(error);
+          if (registry.getAccountPool() && !isTransientProviderFailure(error)) throw error;
+          errors.push({ provider: providerName, ...safeProviderFailure(error) });
           break; // Vai para o proximo fallback provider
         }
       }
@@ -165,7 +293,17 @@ export class DirectExecutor implements Executor {
       }
     }
     
-    // Fallback total falhou
+    // Fallback total falhou - tenta LayaProvider como salva-vidas gracioso
+    if (registry.has('laya')) {
+      try {
+        const layaProvider = registry.get('laya');
+        const layaRes = await providerAttemptTracker.observe(attemptContext, { provider: layaProvider.name, capability: 'chat', model: input.model }, () => layaProvider.chat(input));
+        return layaRes;
+      } catch {
+        // segue para gatewayError
+      }
+    }
+
     ctx.metrics = { ...ctx.metrics, } as any;
     const gatewayError = new ProviderError('gateway', 'All providers in fallback chain failed.', 'ALL_FAILED', 502, false);
     (gatewayError as any).errors = errors;
@@ -185,7 +323,9 @@ export class QueueExecutor implements Executor {
         stream: false, 
         execution: { traceId: ctx.traceId, executionId: ctx.executionId }
       }, {
-        tenantId: ctx.tenant
+        tenantId: ctx.tenant,
+        scopes: ctx.scopes,
+        correlationId: ctx.correlationId,
       });
       const rawResult = result as any;
       
@@ -237,6 +377,8 @@ export class ResponseComposer {
         promptVersion: metadata?.promptOptimization?.promptVersion,
         optimizerVersion: metadata?.promptOptimization?.optimizerVersion,
         applied: metadata?.promptOptimization?.applied === true,
+        system1: metadata?.system1Decision,
+        decision: metadata?.system1Decision?.decision,
       };
     }
     
@@ -245,21 +387,37 @@ export class ResponseComposer {
 }
 
 export class ExecutionGateway {
-  static async execute(tenant: string, payload: any, forceStream: boolean = false): Promise<{ ctx: ExecutionContext, response: ProviderResponse<any> }> {
+  static async execute(tenant: string, payload: any, forceStream: boolean = false, auth: { scopes?: string[] } = {}): Promise<{ ctx: ExecutionContext, response: ProviderResponse<any> }> {
     const traceId = crypto.randomUUID();
     const executionId = crypto.randomUUID();
     
     const messages = payload.messages || [];
     const model = payload.model || 'auto';
     const stream = payload.stream === true || forceStream;
+    const providerAccountId = payload.providerAccountId;
+    if (providerAccountId) {
+      const requiredScopes = payload.capability === 'vision' || (Array.isArray(payload.images) && payload.images.length > 0) ? ['vision'] : ['chat', 'text'];
+      if (!auth.scopes || (!auth.scopes.includes('*') && !requiredScopes.some((scope) => auth.scopes!.includes(scope)))) {
+        throw Object.assign(new Error('API key lacks permission for provider inference'), { status: 403, code: 'INSUFFICIENT_SCOPE' });
+      }
+      const account = await (registry.getAccountPool() ?? providerAccountPool).resolveAccount(providerAccountId);
+      if (!account || !account.enabled) throw Object.assign(new Error('Provider account not found or disabled'), { status: 404, code: 'PROVIDER_ACCOUNT_NOT_FOUND' });
+      if (payload.provider && payload.provider !== account.providerName) throw Object.assign(new Error('Provider account does not match provider'), { status: 400, code: 'PROVIDER_ACCOUNT_MISMATCH' });
+      payload.provider = account.providerName;
+    }
     
     // Injetar ferramentas da APILayer
     payload.tools = [...(payload.tools || []), ...apiLayerTools];
     
     const tracer = new MemoryExecutionTracer();
     const ctx: ExecutionContext = {
+      attemptContext: createProviderAttemptContext({ correlationId: traceId, executionId }),
       executionId,
       traceId,
+      correlationId: traceId,
+      providerAccountId,
+      routingPolicy: payload.routingPolicy || payload.routing_policy,
+      scopes: auth.scopes,
       tenant,
       cacheHit: 'MISS',
       plannerUsed: false,
@@ -281,7 +439,8 @@ export class ExecutionGateway {
       top_p: payload.top_p,
       tools: payload.tools,
       system: payload.system,
-      tenant,
+      tenant,
+      providerAccountId,
     });
     
     if (!stream) {
@@ -296,13 +455,73 @@ export class ExecutionGateway {
     }
     tracer.event('finish', 'cache_lookup', { hit: 'MISS' });
     
-    // 2. Fast Intent Classifier
+    // 2. Fast Intent Classifier & System 1 Semantic Decision (<35ms)
+    const decisionStart = Date.now();
     tracer.event('start', 'intent_classifier');
-    const intent = FastIntentClassifier.classify(messages, { tools: payload.tools });
+    const userPrompt = typeof payload.prompt === 'string' ? payload.prompt : messages.filter((m: any) => m.role === 'user').map((m: any) => m.content).join('\n');
+    
+    let layaDecision: any;
+    try {
+      const laya = new LayaProvider();
+      const layaResult = await providerAttemptTracker.observe(ctx.attemptContext!, { provider: laya.name, capability: 'decision' }, () => laya.decision({ prompt: userPrompt, messages }));
+      layaDecision = layaResult.result;
+    } catch {
+      // fallback gracioso
+    }
+
+    const intent = FastIntentClassifier.classify(messages, { tools: payload.tools, prompt: userPrompt });
     let mode = intent.mode;
     tracer.event('finish', 'intent_classifier', { mode, confidence: intent.confidence });
-    const userPrompt = typeof payload.prompt === 'string' ? payload.prompt : messages.filter((m: any) => m.role === 'user').map((m: any) => m.content).join('\n');
     const classification = TaskClassifier.classify(messages, { tools: payload.tools });
+    const decisionLatencyMs = Math.max(1, Date.now() - decisionStart);
+
+    const isCoding = layaDecision?.decision === 'coding' || intent.isCoding || false;
+    const isComplex = layaDecision?.decision === 'workflow' || intent.isComplexProject || false;
+    const isFast = layaDecision?.decision === 'fast' || intent.mode === ExecutionMode.FAST || false;
+
+    const system1Decision = {
+      decision: isComplex ? 'workflow' : isCoding ? 'coding' : (isFast ? 'fast' : 'standard'),
+      selectedModel: layaDecision?.selectedModel || intent.recommendedModel || (isCoding ? 'deepseek-coder:6.7b' : 'qwen2.5:3b'),
+      selectedProvider: layaDecision?.selectedProvider || 'ollama',
+      fastResponse: layaDecision?.fastResponse || (isCoding ? 'Identifiquei uma tarefa de código/desenvolvimento. Ativando especialista em código.' : undefined),
+      latencyMs: decisionLatencyMs,
+      isCoding,
+      isComplexProject: isComplex,
+    };
+
+    const requestedModel = (model || '').toLowerCase().trim();
+    if (['laya', 'decision', 'laya-system1'].includes(requestedModel) && !payload.forceCascade) {
+      const fastText =
+        system1Decision.fastResponse ||
+        `[LAYA System 1]: Decisão tomada em ${system1Decision.latencyMs}ms. Encaminhando para ${system1Decision.selectedModel} (${system1Decision.decision}).`;
+      ctx.decision = { mode: ExecutionMode.FAST, transport: ExecutionTransport.DIRECT, stream: false, reason: 'SYSTEM_1_FAST_DECISION' };
+      const response = {
+        result: { message: { role: 'assistant', content: fastText }, text: fastText },
+        model: 'laya-system1',
+        provider: 'laya',
+        tokens: { prompt: Math.ceil(userPrompt.length / 4), completion: 15, total: Math.ceil(userPrompt.length / 4) + 15 },
+        executionTime: decisionLatencyMs,
+        cached: false,
+      };
+      tracer.event('finish', 'gateway');
+      return { ctx, response: ResponseComposer.compose(ctx, response as any) };
+    }
+
+    let effectiveModel = payload.model;
+    let effectivePool = payload.pool;
+    if (['auto', 'laya', 'decision', 'coding', 'fast', ''].includes(requestedModel)) {
+      if (isCoding) {
+        effectiveModel = intent.recommendedModel || 'deepseek-coder:6.7b';
+        effectivePool = 'CODING';
+      } else if (isComplex) {
+        effectiveModel = 'claude-3-5-sonnet-latest';
+        effectivePool = 'POWER';
+      } else if (isFast) {
+        effectiveModel = 'qwen2.5:1.5b';
+        effectivePool = 'FAST';
+      }
+    }
+
     const requestedMode = payload.execution_mode || payload.executionMode || 'adaptive';
     const strategy = requestedMode === 'single'
       ? 'single'
@@ -322,20 +541,25 @@ export class ExecutionGateway {
       constraints: Array.isArray(payload.constraints) ? payload.constraints : undefined,
     });
     const adaptive = payload.execution_mode === 'adaptive' || payload.executionMode === 'adaptive' || payload.execution_mode === undefined;
-    const executionPayload = adaptive && optimization.originalPrompt
-      ? {
-          ...payload,
-          prompt: typeof payload.prompt === 'string' ? optimization.optimizedPrompt : payload.prompt,
-          messages: messages.map((message: any, index: number) => {
-            const isLastUser = message.role === 'user' && index === messages.map((m: any) => m.role).lastIndexOf('user');
-            return isLastUser && typeof message.content === 'string'
-              ? { ...message, content: optimization.optimizedPrompt }
-              : message;
-          }),
-        }
-      : payload;
+    const executionPayload = {
+      ...(adaptive && optimization.originalPrompt
+        ? {
+            ...payload,
+            prompt: typeof payload.prompt === 'string' ? optimization.optimizedPrompt : payload.prompt,
+            messages: messages.map((message: any, index: number) => {
+              const isLastUser = message.role === 'user' && index === messages.map((m: any) => m.role).lastIndexOf('user');
+              return isLastUser && typeof message.content === 'string'
+                ? { ...message, content: optimization.optimizedPrompt }
+                : message;
+            }),
+          }
+        : payload),
+      model: effectiveModel,
+      pool: effectivePool,
+    };
     ctx.metadata = {
       ...ctx.metadata,
+      system1Decision,
       classification,
       strategy: { requestedMode, selected: strategy, maxAgents: classification.estimatedAgents },
       promptOptimization: {
@@ -348,6 +572,31 @@ export class ExecutionGateway {
       },
     };
     
+    // Fast Response + Background Intelligence (Dual-Lane Assíncrono)
+    const isExplicitAsync = payload.background === true || payload.async === true || (payload.dualLane === true && payload.wait === false);
+    if ((isExplicitAsync || (BackgroundOrchestratorService.shouldTriggerBackground(payload, classification.complexityScore) && payload.wait === false)) && !stream) {
+      const bg = await BackgroundOrchestratorService.executeFastAndBackground({
+        prompt: userPrompt,
+        messages: executionPayload.messages,
+        tenantId: tenant,
+        projectId: payload.projectId,
+        providerAccountId,
+        scopes: auth.scopes,
+        correlationId: ctx.correlationId,
+      });
+      ctx.decision = { mode: ExecutionMode.FAST, transport: ExecutionTransport.DIRECT, stream: false, reason: 'DUAL_LANE_BACKGROUND_TRIGGERED' };
+      const response = {
+        result: { text: bg.fastResponse, missionId: bg.missionId, status: bg.status, streamUrl: bg.streamUrl },
+        model: 'fast-router',
+        provider: 'orchestrator',
+        tokens: { prompt: Math.ceil(userPrompt.length / 4), completion: 35, total: Math.ceil(userPrompt.length / 4) + 35 },
+        executionTime: Date.now() - (ctx.startTime || Date.now()),
+        cached: false,
+      };
+      tracer.event('finish', 'gateway');
+      return { ctx, response: ResponseComposer.compose(ctx, response as any) };
+    }
+
     // 3. Complexity (only if WORKFLOW)
     if (mode === ExecutionMode.WORKFLOW) {
       tracer.event('start', 'complexity_analyzer');
@@ -431,7 +680,27 @@ export class ExecutionGateway {
       }
     }
     
-    // 5. Compose
+    // 5. Compose (com suporte a consolidação Dual-Lane / Cascata transparente)
+    if ((payload.dualLane === true || payload.cascade === true) && system1Decision.fastResponse && !stream && rawResponse && !('stream' in rawResponse)) {
+      const rawRes = rawResponse as any;
+      const baseContent = rawRes.result?.message?.content || rawRes.result?.text || '';
+      const consolidatedContent = `/* ${system1Decision.fastResponse} */\n\n${baseContent}`;
+      if (rawRes.result?.message) {
+        rawRes.result.message.content = consolidatedContent;
+      }
+      if (rawRes.result?.text) {
+        rawRes.result.text = consolidatedContent;
+      }
+      ctx.metadata = {
+        ...ctx.metadata,
+        system1Decision: {
+          ...system1Decision,
+          consolidated: true,
+          originalFastResponse: system1Decision.fastResponse,
+        },
+      };
+    }
+
     tracer.startComposer();
     const response = ResponseComposer.compose(ctx, rawResponse);
     tracer.finishComposer();

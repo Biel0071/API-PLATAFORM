@@ -8,14 +8,17 @@ import { OpenAICompatibleProvider } from './openai-compatible.provider';
 import { ReplicateProvider } from './replicate.provider';
 import { SDAPIProvider } from './sdapi.provider';
 import { MissionProvider } from './mission.provider';
+import { LayaProvider } from './laya.provider';
+import { JevProvider } from './jev.provider';
+import type { ProviderAccountPool } from './account-pool';
 
 export interface ProviderMetrics {
-  priority: number;       // 1 = Local First, 2 = Cloud Second, 3 = Fallback Third
-  health: number;         // 0.0 a 1.0 (1.0 = 100% healthy)
-  latency: number;        // ms
-  contextWindow: number;  // tokens
-  cost: number;           // relative cost (0 = free/local, higher = more expensive)
-  throughput: number;     // tokens per second
+  priority: number; // 1 = Local First, 2 = Cloud Second, 3 = Fallback Third
+  health: number; // 0.0 a 1.0 (1.0 = 100% healthy)
+  latency: number; // ms
+  contextWindow: number; // tokens
+  cost: number; // relative cost (0 = free/local, higher = more expensive)
+  throughput: number; // tokens per second
 }
 
 /**
@@ -25,24 +28,112 @@ export interface ProviderMetrics {
  */
 const fallbackMetrics: Record<string, ProviderMetrics> = {
   // Priority 1: Local First
-  'ollama': { priority: 1, health: 0.95, latency: 200, contextWindow: 8192, cost: 0, throughput: 50 },
-  'lmstudio': { priority: 1, health: 0.95, latency: 150, contextWindow: 8192, cost: 0, throughput: 60 },
-  'comfyui': { priority: 1, health: 0.90, latency: 5000, contextWindow: 0, cost: 0, throughput: 1 },
-  'forge': { priority: 1, health: 0.90, latency: 4000, contextWindow: 0, cost: 0, throughput: 1 },
-  'a1111': { priority: 1, health: 0.90, latency: 4000, contextWindow: 0, cost: 0, throughput: 1 },
-  'sdapi': { priority: 1, health: 0.90, latency: 4000, contextWindow: 0, cost: 0, throughput: 1 },
+  laya: { priority: 1, health: 1.0, latency: 15, contextWindow: 4096, cost: 0, throughput: 1000 },
+  ollama: { priority: 1, health: 0.95, latency: 200, contextWindow: 8192, cost: 0, throughput: 50 },
+  lmstudio: {
+    priority: 1,
+    health: 0.95,
+    latency: 150,
+    contextWindow: 8192,
+    cost: 0,
+    throughput: 60,
+  },
+  comfyui: { priority: 1, health: 0.9, latency: 5000, contextWindow: 0, cost: 0, throughput: 1 },
+  forge: { priority: 1, health: 0.9, latency: 4000, contextWindow: 0, cost: 0, throughput: 1 },
+  a1111: { priority: 1, health: 0.9, latency: 4000, contextWindow: 0, cost: 0, throughput: 1 },
+  sdapi: { priority: 1, health: 0.9, latency: 4000, contextWindow: 0, cost: 0, throughput: 1 },
   // Priority 2: Cloud Second
-  'gemini': { priority: 2, health: 0.95, latency: 400, contextWindow: 1048576, cost: 1, throughput: 100 },
-  'anthropic': { priority: 2, health: 0.95, latency: 500, contextWindow: 200000, cost: 3, throughput: 80 },
-  'openai': { priority: 2, health: 0.95, latency: 450, contextWindow: 128000, cost: 2, throughput: 90 },
-  'groq': { priority: 2, health: 0.95, latency: 100, contextWindow: 32768, cost: 0.5, throughput: 800 },
-  'grok': { priority: 2, health: 0.95, latency: 100, contextWindow: 32768, cost: 0.5, throughput: 800 },
-  'xai': { priority: 2, health: 0.95, latency: 300, contextWindow: 131072, cost: 5, throughput: 100 },
-  'cloudflare': { priority: 2, health: 0.95, latency: 150, contextWindow: 8192, cost: 0.1, throughput: 300 },
+  jev: { priority: 2, health: 0.98, latency: 45, contextWindow: 8192, cost: 0.01, throughput: 500 },
+  kimi: {
+    priority: 2,
+    health: 0.95,
+    latency: 350,
+    contextWindow: 128000,
+    cost: 0.5,
+    throughput: 60,
+  },
+  deepseek: {
+    priority: 2,
+    health: 0.95,
+    latency: 300,
+    contextWindow: 64000,
+    cost: 0.3,
+    throughput: 70,
+  },
+  gemini: {
+    priority: 2,
+    health: 0.95,
+    latency: 400,
+    contextWindow: 1048576,
+    cost: 1,
+    throughput: 100,
+  },
+  anthropic: {
+    priority: 2,
+    health: 0.95,
+    latency: 500,
+    contextWindow: 200000,
+    cost: 3,
+    throughput: 80,
+  },
+  openai: {
+    priority: 2,
+    health: 0.95,
+    latency: 450,
+    contextWindow: 128000,
+    cost: 2,
+    throughput: 90,
+  },
+  groq: {
+    priority: 2,
+    health: 0.95,
+    latency: 100,
+    contextWindow: 32768,
+    cost: 0.5,
+    throughput: 800,
+  },
+  grok: {
+    priority: 2,
+    health: 0.95,
+    latency: 100,
+    contextWindow: 32768,
+    cost: 0.5,
+    throughput: 800,
+  },
+  xai: { priority: 2, health: 0.95, latency: 300, contextWindow: 131072, cost: 5, throughput: 100 },
+  cloudflare: {
+    priority: 2,
+    health: 0.95,
+    latency: 150,
+    contextWindow: 8192,
+    cost: 0.1,
+    throughput: 300,
+  },
   // Priority 3: Fallback Third
-  'openrouter': { priority: 3, health: 0.90, latency: 800, contextWindow: 128000, cost: 1.5, throughput: 40 },
-  'replicate': { priority: 3, health: 0.85, latency: 3000, contextWindow: 8192, cost: 2, throughput: 20 },
-  'mission': { priority: 1, health: 0.95, latency: 100, contextWindow: 8192, cost: 0, throughput: 100 },
+  openrouter: {
+    priority: 3,
+    health: 0.9,
+    latency: 800,
+    contextWindow: 128000,
+    cost: 1.5,
+    throughput: 40,
+  },
+  replicate: {
+    priority: 3,
+    health: 0.85,
+    latency: 3000,
+    contextWindow: 8192,
+    cost: 2,
+    throughput: 20,
+  },
+  mission: {
+    priority: 1,
+    health: 0.95,
+    latency: 100,
+    contextWindow: 8192,
+    cost: 0,
+    throughput: 100,
+  },
 };
 
 export interface ProviderScoreContext {
@@ -63,6 +154,16 @@ export interface RealMetrics {
 export class ProviderRegistry {
   private providers = new Map<string, AIProvider>();
   private defaults: Partial<Record<Capability, string>> = {};
+  private accountPool?: ProviderAccountPool;
+
+  setAccountPool(pool: ProviderAccountPool): this {
+    this.accountPool = pool;
+    return this;
+  }
+
+  getAccountPool(): ProviderAccountPool | undefined {
+    return this.accountPool;
+  }
 
   register(provider: AIProvider): this {
     this.providers.set(provider.name, provider);
@@ -99,13 +200,16 @@ export class ProviderRegistry {
     return { ...this.defaults };
   }
 
-  private static metricsFetcher: ((providerName: string) => Promise<RealMetrics | null>) | null = null;
+  private static metricsFetcher: ((providerName: string) => Promise<RealMetrics | null>) | null =
+    null;
 
   /**
    * Define a função que busca métricas reais do banco de dados.
    * Deve ser configurado pelo backend ao inicializar.
    */
-  public static setMetricsFetcher(fetcher: (providerName: string) => Promise<RealMetrics | null>): void {
+  public static setMetricsFetcher(
+    fetcher: (providerName: string) => Promise<RealMetrics | null>,
+  ): void {
     ProviderRegistry.metricsFetcher = fetcher;
   }
 
@@ -116,7 +220,7 @@ export class ProviderRegistry {
   private async getRealMetrics(providerName: string): Promise<RealMetrics | null> {
     const fetcher = ProviderRegistry.metricsFetcher;
     if (!fetcher) return null;
-    
+
     try {
       return await fetcher(providerName);
     } catch {
@@ -131,9 +235,9 @@ export class ProviderRegistry {
   public async calculateScore(provider: AIProvider, _capability: Capability): Promise<number> {
     // Tenta obter métricas reais primeiro
     const realMetrics = await this.getRealMetrics(provider.name);
-    
+
     let metrics: ProviderMetrics;
-    
+
     if (realMetrics && realMetrics.callCount >= 5) {
       // Usa métricas reais se tiver pelo menos 5 chamadas
       metrics = {
@@ -152,7 +256,7 @@ export class ProviderRegistry {
         latency: 1000,
         contextWindow: 4096,
         cost: 5,
-        throughput: 10
+        throughput: 10,
       };
     }
 
@@ -160,7 +264,7 @@ export class ProviderRegistry {
     if (metrics.health < 0.5) return -9999;
 
     let score = 10000;
-    
+
     // Priority (Local First = 1 -> +3000 pts, Cloud Second = 2 -> +2000 pts)
     score += (4 - metrics.priority) * 1000;
 
@@ -171,10 +275,10 @@ export class ProviderRegistry {
     score -= metrics.latency;
 
     // Context Window (maior é melhor) -> +1 pt a cada 10k tokens
-    score += (metrics.contextWindow / 10000);
+    score += metrics.contextWindow / 10000;
 
     // Preço (menor é melhor) -> -100 pts por unidade de custo
-    score -= (metrics.cost * 100);
+    score -= metrics.cost * 100;
 
     // Throughput (maior é melhor) -> +1 pt por token/s
     score += metrics.throughput;
@@ -199,13 +303,13 @@ export class ProviderRegistry {
       }
       return provider;
     }
-    
+
     const defaultName = this.defaults[capability];
     if (defaultName && this.has(defaultName)) {
       const provider = this.get(defaultName);
       if (provider.capabilities.includes(capability)) return provider;
     }
-    
+
     // Scored resolution - agora usa calculateScore assíncrono com métricas reais
     const candidates = this.list().filter((p) => p.capabilities.includes(capability));
     if (candidates.length === 0) {
@@ -222,9 +326,9 @@ export class ProviderRegistry {
       candidates.map(async (provider) => ({
         provider,
         score: await this.calculateScore(provider, capability),
-      }))
+      })),
     );
-    
+
     scoredCandidates.sort((a, b) => b.score - a.score);
     return scoredCandidates[0].provider;
   }
@@ -256,19 +360,27 @@ export type Env = Record<string, string | undefined>;
 /** Constroi o registry a partir das variaveis de ambiente. */
 export function createRegistryFromEnv(env: Env): ProviderRegistry {
   const registry = new ProviderRegistry();
-  
-  registry.register(new MissionProvider(registry));
 
-  if (env.OLLAMA_BASE_URL) {
+  registry.register(new MissionProvider(registry));
+  registry.register(new LayaProvider());
+  registry.register(new JevProvider({ baseUrl: env.JEV_BASE_URL, apiKey: env.JEV_API_KEY }));
+
+  const ollamaBaseUrl =
+    env.OLLAMA_BASE_URL ||
+    process.env.OLLAMA_BASE_URL ||
+    (process.env.NODE_ENV === 'test' ? 'http://127.0.0.1:11434' : undefined);
+  if (ollamaBaseUrl) {
     registry.register(
       new OllamaProvider({
-        baseUrl: env.OLLAMA_BASE_URL,
-        defaultModel: env.OLLAMA_DEFAULT_MODEL,
-        embedModel: env.OLLAMA_EMBED_MODEL,
-        visionModel: env.OLLAMA_VISION_MODEL,
+        baseUrl: ollamaBaseUrl,
+        defaultModel: env.OLLAMA_DEFAULT_MODEL || process.env.OLLAMA_DEFAULT_MODEL,
+        embedModel: env.OLLAMA_EMBED_MODEL || process.env.OLLAMA_EMBED_MODEL,
+        visionModel: env.OLLAMA_VISION_MODEL || process.env.OLLAMA_VISION_MODEL,
         maxParallel: env.OLLAMA_NUM_PARALLEL ? Number(env.OLLAMA_NUM_PARALLEL) : undefined,
         timeoutMs: env.OLLAMA_TIMEOUT_MS ? Number(env.OLLAMA_TIMEOUT_MS) : undefined,
-        healthTimeoutMs: env.OLLAMA_HEALTH_TIMEOUT_MS ? Number(env.OLLAMA_HEALTH_TIMEOUT_MS) : undefined,
+        healthTimeoutMs: env.OLLAMA_HEALTH_TIMEOUT_MS
+          ? Number(env.OLLAMA_HEALTH_TIMEOUT_MS)
+          : undefined,
       }),
     );
   }
@@ -287,10 +399,12 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.GEMINI_API_KEY) {
+  if (env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN) {
     registry.register(
       new GeminiProvider({
         apiKey: env.GEMINI_API_KEY,
+        accessToken: env.GEMINI_ACCESS_TOKEN,
+        oauthProjectId: env.GEMINI_OAUTH_PROJECT_ID,
         baseUrl: env.GEMINI_BASE_URL,
         defaultModel: env.GEMINI_DEFAULT_MODEL,
         embedModel: env.GEMINI_EMBED_MODEL,
@@ -344,7 +458,7 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
       }),
     );
   }
-  
+
   if (env.GROQ_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
@@ -373,7 +487,8 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'cloudflare',
-        baseUrl: env.CLOUDFLARE_BASE_URL ??
+        baseUrl:
+          env.CLOUDFLARE_BASE_URL ??
           `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1`,
         apiKey: env.CLOUDFLARE_API_TOKEN,
         defaultModel: env.CLOUDFLARE_DEFAULT_MODEL ?? '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
@@ -414,9 +529,13 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
   }
 
   if (env.FORGE_BASE_URL) {
-    registry.register(new A1111Provider({
-      name: 'forge', baseUrl: env.FORGE_BASE_URL, defaultModel: env.FORGE_DEFAULT_MODEL,
-    }));
+    registry.register(
+      new A1111Provider({
+        name: 'forge',
+        baseUrl: env.FORGE_BASE_URL,
+        defaultModel: env.FORGE_DEFAULT_MODEL,
+      }),
+    );
   }
 
   if (env.A1111_BASE_URL) {
@@ -440,7 +559,31 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
       new ReplicateProvider({
         apiToken: env.REPLICATE_API_TOKEN,
         imageModel: env.REPLICATE_IMAGE_MODEL,
-        textModel: env.REPLICATE_TEXT_MODEL, // used for chat in replicate probably
+        textModel: env.REPLICATE_TEXT_MODEL,
+      }),
+    );
+  }
+
+  if (env.KIMI_API_KEY || env.MOONSHOT_API_KEY) {
+    registry.register(
+      new OpenAICompatibleProvider({
+        name: 'kimi',
+        baseUrl: env.KIMI_BASE_URL ?? env.MOONSHOT_BASE_URL ?? 'https://api.moonshot.cn/v1',
+        apiKey: env.KIMI_API_KEY || env.MOONSHOT_API_KEY!,
+        defaultModel: env.KIMI_DEFAULT_MODEL ?? 'moonshot-v1-8k',
+        capabilities: ['chat'],
+      }),
+    );
+  }
+
+  if (env.DEEPSEEK_API_KEY) {
+    registry.register(
+      new OpenAICompatibleProvider({
+        name: 'deepseek',
+        baseUrl: env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1',
+        apiKey: env.DEEPSEEK_API_KEY,
+        defaultModel: env.DEEPSEEK_DEFAULT_MODEL ?? 'deepseek-coder',
+        capabilities: ['chat'],
       }),
     );
   }
@@ -452,6 +595,7 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     ['vision', env.DEFAULT_VISION_PROVIDER],
     ['audio', env.DEFAULT_AUDIO_PROVIDER],
     ['mission', env.DEFAULT_MISSION_PROVIDER],
+    ['decision', env.DEFAULT_DECISION_PROVIDER ?? 'laya'],
   ];
   for (const [capability, name] of defaults) {
     if (name) registry.setDefault(capability, name);

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildProviderAccountEnvironments, encryptCredential } from '@api-platform/shared';
 
 const state = vi.hoisted(() => ({
   providers: [] as any[],
@@ -6,7 +7,15 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('../src/lib/prisma', () => {
   const transaction = {
-    providerConfig: { findMany: async () => structuredClone(state.providers) },
+    providerConfig: {
+      findMany: async () => structuredClone(state.providers.map((provider) => ({ ...provider, legacyAccount: state.accounts.find((account) => account.legacyProviderConfigId === provider.id) ?? null }))),
+      update: async ({ where, data }: any) => {
+        const provider = state.providers.find((item) => item.id === where.id);
+        if (!provider) throw new Error('provider missing');
+        Object.assign(provider, structuredClone(data));
+        return provider;
+      },
+    },
     providerAccount: {
       createMany: async ({ data, skipDuplicates }: { data: any[]; skipDuplicates: boolean }) => {
         let count = 0;
@@ -29,7 +38,7 @@ vi.mock('../src/lib/prisma', () => {
   return { prisma: { $transaction: async (operation: any) => operation(transaction) } };
 });
 
-import { backfillLegacyProviderAccounts } from '../src/services/provider-account-migration.service';
+import { backfillLegacyProviderAccounts, finalizeLegacyProviderSecrets } from '../src/services/provider-account-migration.service';
 
 function provider(name: string, settings: object = {}, extra: object = {}) {
   return { id: `provider-${name}`, name, enabled: true, baseUrl: null, settings, ...extra };
@@ -214,5 +223,51 @@ describe('legacy provider account backfill', () => {
     );
     expect(await backfillLegacyProviderAccounts()).toBe(1);
     expect(state.accounts[0].settings).toEqual({});
+  });
+
+  it('clears validated API key, OAuth and local legacy secrets idempotently, preserving defaults', async () => {
+    const retainedApiKey = encryptCredential('new-api-key', 'runtime-secret');
+    state.providers.push(
+      provider('openai', { apiKeyEncrypted: 'old-api-key', defaultChat: true, defaultModel: 'gpt-4o', keep: 'yes' }),
+      provider('huggingface', { oauth: { accessTokenEncrypted: 'old-access', refreshTokenEncrypted: 'old-refresh', clientSecret: 'old-client-secret', provider: 'huggingface' } }),
+      provider('ollama', { baseUrl: 'http://ollama:11434', apiKeyEncrypted: 'stale-local-secret' }),
+    );
+    state.accounts.push(
+      { legacyProviderConfigId: 'provider-openai', providerId: 'provider-openai', displayName: 'OpenAI', authMode: 'apiKey', enabled: true, disconnectedAt: null, credentialEncrypted: retainedApiKey, healthOk: true, healthCheckedAt: new Date() },
+      { legacyProviderConfigId: 'provider-huggingface', providerId: 'provider-huggingface', displayName: 'HF', authMode: 'oauth', enabled: true, disconnectedAt: null, oauthAccessTokenEncrypted: 'new-access', oauthRefreshTokenEncrypted: 'new-refresh', oauthNeedsReauth: false, healthOk: true, healthCheckedAt: new Date() },
+      { legacyProviderConfigId: 'provider-ollama', providerId: 'provider-ollama', displayName: 'Local', authMode: 'local', baseUrl: 'http://ollama:11434', enabled: true, disconnectedAt: null, healthOk: true, healthCheckedAt: new Date() },
+    );
+
+    expect(await finalizeLegacyProviderSecrets()).toBe(3);
+    expect(await finalizeLegacyProviderSecrets()).toBe(0);
+    expect(state.providers[0].settings).toEqual({ defaultChat: true, defaultModel: 'gpt-4o', keep: 'yes' });
+    expect(state.providers[1].settings).toEqual({ oauth: { provider: 'huggingface' } });
+    expect(state.providers[2].settings).toEqual({ baseUrl: 'http://ollama:11434' });
+    expect(state.accounts.map((account) => account.authMode)).toEqual(['apiKey', 'oauth', 'local']);
+    expect(state.accounts[0].credentialEncrypted).toBe(retainedApiKey);
+    expect(state.accounts[1].oauthAccessTokenEncrypted).toBe('new-access');
+
+    const environments = await buildProviderAccountEnvironments(
+      state.accounts.map((account) => {
+        const provider = state.providers.find((row) => row.id === account.providerId)!;
+        return {
+          ...account,
+          id: account.providerId,
+          providerName: provider.name,
+          provider: { name: provider.name, enabled: true, baseUrl: provider.baseUrl, settings: provider.settings },
+        };
+      }) as any,
+      'runtime-secret',
+      async (_accountId, _providerName, oauth) => oauth.accessTokenEncrypted,
+    );
+    expect(environments[0].env.OPENAI_API_KEY).toBe('new-api-key');
+    expect(environments[1].env.HUGGINGFACE_API_KEY).toBe('new-access');
+    expect(environments[2].env.OLLAMA_BASE_URL).toBe('http://ollama:11434');
+  });
+
+  it('keeps credentials when a provider has no linked, validated account', async () => {
+    state.providers.push(provider('openai', { apiKeyEncrypted: 'preserve-me' }));
+    expect(await finalizeLegacyProviderSecrets()).toBe(0);
+    expect(state.providers[0].settings).toEqual({ apiKeyEncrypted: 'preserve-me' });
   });
 });

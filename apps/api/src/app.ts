@@ -2,7 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
-import { fail, ProviderError } from '@api-platform/shared';
+import { fail, ProviderError, ProviderQuotaManager, ModelCapabilityRegistry } from '@api-platform/shared';
 import { env } from './config/env';
 import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
@@ -19,6 +19,8 @@ import { queueStats } from './services/queue.service';
 import { registerOpenAICompatRoutes } from './routes/v1/openai-compat';
 import { registerAnthropicCompatRoutes } from './routes/v1/anthropic-compat';
 import { providerHealthState } from './services/health-check.service';
+import { registerGoogleOAuthCallback } from './routes/provider-oauth-callback';
+import { ProviderOAuthError } from './services/provider-oauth.service';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app: FastifyInstance = Fastify({
@@ -36,6 +38,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerSecurity(app);
   await registerAuth(app);
   await registerSwagger(app, env.DOCS_ENABLED);
+  await registerGoogleOAuthCallback(app);
 
   const maxVideoSize = Number(process.env.MAX_VIDEO_SIZE) || 50 * 1024 * 1024;
   await app.register(fastifyMultipart, {
@@ -64,7 +67,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(400).send(fail('VALIDATION_ERROR', 'Payload invalido', err.flatten()));
     }
     if (err instanceof ProviderError) {
-      return reply.code(err.statusCode).send(fail(err.code, err.message));
+      return reply.code(err.statusCode).send(fail(err.code, 'Provider request failed'));
+    }
+    if (err instanceof ProviderOAuthError) {
+      return reply.code(err.statusCode).send(fail(err.code, 'OAuth request failed'));
     }
     const statusCode = Number((err as { statusCode?: number }).statusCode ?? 500);
     if (statusCode === 429) {
@@ -228,26 +234,63 @@ export async function buildApp(): Promise<FastifyInstance> {
     };
     const providers = await Promise.all(registry.list().map(async (provider) => {
       const started = Date.now();
+      const quota = ProviderQuotaManager.getStatus(provider.name);
+      const registeredModels = ModelCapabilityRegistry.listModels().filter((m) => m.provider === provider.name);
+      const pools = Array.from(new Set(registeredModels.flatMap((m) => m.pools)));
       try {
         // Ollama health performs one real token generation; allow cold model load.
         const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('provider probe timeout')), Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || 70_000)));
         const health = await Promise.race([provider.health(), timeout]);
         const models = await provider.models().catch(() => []);
         const keyCount = configuredKeyCount(provider.name);
-        return { name: provider.name, status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'), health: health.ok, latencyMs: health.latencyMs ?? Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, keyCount, credentials: keyCount ? 'configured' : 'not_configured' };
+        return {
+          name: provider.name,
+          status: health.ok ? 'healthy' : (models.length ? 'degraded' : 'offline'),
+          health: health.ok,
+          latencyMs: health.latencyMs ?? Date.now() - started,
+          models: models.map((model) => model.id),
+          capabilities: provider.capabilities,
+          pools,
+          quota,
+          keyCount,
+          credentials: keyCount ? 'configured' : 'not_configured',
+        };
       } catch (error) {
         // A slow inference probe must not hide model discovery. A provider with
         // reachable models is degraded, not offline, until the real probe fails
         // for a reason other than timeout or cold start.
         const models = await provider.models().catch(() => []);
         const keyCount = configuredKeyCount(provider.name);
-        return { name: provider.name, status: models.length ? 'degraded' : 'offline', health: false, latencyMs: Date.now() - started, models: models.map((model) => model.id), capabilities: provider.capabilities, keyCount, credentials: keyCount ? 'configured' : 'not_configured', error: error instanceof Error ? error.message : 'provider probe failed' };
+        return {
+          name: provider.name,
+          status: models.length ? 'degraded' : 'offline',
+          health: false,
+          latencyMs: Date.now() - started,
+          models: models.map((model) => model.id),
+          capabilities: provider.capabilities,
+          pools,
+          quota,
+          keyCount,
+          credentials: keyCount ? 'configured' : 'not_configured',
+          error: error instanceof Error ? error.message : 'provider probe failed',
+        };
       }
     }));
     const queues = await queueStats().catch(() => []);
     const queuedRequests = queues.reduce((sum, queue) => sum + Number(queue.waiting || 0), 0);
     const activeRequests = queues.reduce((sum, queue) => sum + Number(queue.active || 0), 0);
-    return { success: true, providers, healthyProviders: providers.filter((provider) => provider.health).map((provider) => provider.name), keys: { configured: 'redacted', healthy: 'redacted' }, activeRequests, queuedRequests, availableConcurrency: Math.max(0, Number(process.env.MAX_GLOBAL_AI_CONCURRENCY || 8) - activeRequests), timestamp: new Date().toISOString() };
+    const availablePools = ['FAST', 'GENERAL', 'CODING', 'REASONING', 'VISION', 'EMBEDDING', 'POWER', 'AUTO'];
+    return {
+      success: true,
+      providers,
+      healthyProviders: providers.filter((provider) => provider.health).map((provider) => provider.name),
+      pools: availablePools,
+      keys: { configured: 'redacted', healthy: 'redacted' },
+      activeRequests,
+      queuedRequests,
+      availableConcurrency: Math.max(0, Number(process.env.MAX_GLOBAL_AI_CONCURRENCY || 8) - activeRequests),
+      timestamp: new Date().toISOString(),
+    };
   });
 
 

@@ -137,6 +137,7 @@ model ProviderAccount {
 
   provider             ProviderConfig  @relation("ProviderAccounts", fields: [providerId], references: [id], onDelete: Restrict)
   legacyProviderConfig ProviderConfig? @relation("LegacyProviderAccount", fields: [legacyProviderConfigId], references: [id], onDelete: SetNull)
+  attempts             ProviderAttempt[]
 
   @@index([providerId, enabled])
 }
@@ -149,11 +150,40 @@ model ModelConfig {
   capability      String  @default("text")
   costPer1kInput  Float   @default(0)
   costPer1kOutput Float   @default(0)
+  pricingConfigured Boolean @default(false)
   enabled         Boolean @default(true)
 
   provider ProviderConfig @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
   @@unique([providerId, modelId])
+}
+
+model ProviderAttempt {
+  id                String   @id @default(cuid())
+  correlationId     String
+  executionId       String
+  attemptNumber     Int
+  providerAccountId String?
+  provider          String
+  model             String
+  capability        String
+  success           Boolean
+  errorCode         String?
+  durationMs        Int
+  promptTokens      Int?
+  completionTokens  Int?
+  totalTokens       Int?
+  estimatedCost     Float?
+  pricingConfigured Boolean
+  inputRatePer1k    Float?
+  outputRatePer1k   Float?
+  createdAt         DateTime @default(now())
+
+  account ProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([executionId, attemptNumber])
+  @@index([providerAccountId, createdAt])
+  @@index([correlationId])
 }
 
 // ---------- Jobs / Filas ----------

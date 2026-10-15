@@ -62,3 +62,5 @@ export function pickModel(
   }
   return env.OLLAMA_DEFAULT_MODEL;
 }
+
+export { SmartModelRouter, RouteCandidate, RouteDecision } from './smart-router';

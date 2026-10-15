@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ExecutionGateway } from '../../services/execution-gateway.service';
 import { ProviderStream } from '@api-platform/shared';
+import { serializeProviderFailure } from '../../lib/provider-error-serialization';
 import { anthropicContentToText, normalizeAnthropicMessages, normalizeAnthropicToolChoice, normalizeAnthropicTools } from './anthropic-compat.mapper';
 
 function createMessageId(): string {
@@ -89,17 +90,22 @@ export async function registerAnthropicCompatRoutes(fastify: FastifyInstance) {
       ? normalizeAnthropicTools(tools)
       : undefined;
 
+    const routingPolicy = request.headers['x-routing-policy'] || request.body?.routingPolicy || request.body?.routing_policy;
+
     try {
       const { ctx, response } = await ExecutionGateway.execute(tenantId, {
         messages: internalMessages,
         system: normalizedSystem || undefined,
         model: internalModel,
+        provider: request.body?.provider,
+        providerAccountId: request.body?.providerAccountId,
+        routingPolicy,
         temperature,
         maxTokens: clampAnthropicMaxTokens(max_tokens),
         stream,
         tools: internalTools,
         toolChoice: internalToolChoice,
-      }, stream);
+      }, stream, { scopes: request.auth?.scopes });
 
       const msgId = createMessageId();
 
@@ -255,12 +261,14 @@ export async function registerAnthropicCompatRoutes(fastify: FastifyInstance) {
         });
       }
     } catch (err: any) {
-      fastify.log.error(err);
-      return reply.status(err.statusCode || err.status || 500).send({
+      const safeError = serializeProviderFailure(err);
+      const { statusCode, errorCode } = safeError;
+      fastify.log.warn({ statusCode, errorCode }, 'Anthropic compatibility request failed');
+      return reply.status(statusCode).send({
         type: 'error',
         error: {
           type: 'api_error',
-          message: err.message || 'Internal Server Error'
+          message: safeError.message
         }
       });
     }

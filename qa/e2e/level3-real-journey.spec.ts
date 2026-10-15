@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Ultimate UI Journey - AI-LLM Dashboard', () => {
-  const HOST = 'http://209.50.241.215'; // ou http://localhost dependendo de onde roda
+  const HOST = process.env.TEST_HOST || 'http://localhost:8080'; // ou http://localhost dependendo de onde roda
 
   test('Mapeamento e Cliques em Todas as Funcionalidades (Keys, Wizard, Playground)', async ({ page }) => {
     test.setTimeout(120000); // 2 minutos max
@@ -17,7 +17,7 @@ test.describe('Ultimate UI Journey - AI-LLM Dashboard', () => {
     console.log('✅ Login efetuado com sucesso');
 
     // 2. HOME OVERVIEW
-    await expect(page.locator('h1')).toContainText('Visao Geral do Sistema');
+    await expect(page.locator('#content h1')).toContainText('Visao Geral do Sistema');
     await page.waitForTimeout(1000);
 
     // 3. WIZARD DE PROJETOS E CHAVES
@@ -40,7 +40,7 @@ test.describe('Ultimate UI Journey - AI-LLM Dashboard', () => {
     // Avança para o Passo 3 e 4
     await page.click('#btn-step-2');
     await page.click('#btn-step-3');
-    await expect(page.locator('h2')).toContainText('Concluído! Projeto ONLINE');
+    await expect(page.locator('#step-4 h2')).toContainText('Concluído! Projeto ONLINE');
 
     // 4. CHAVES (API KEYS)
     await page.goto(`${HOST}/#/keys`);
@@ -62,11 +62,14 @@ test.describe('Ultimate UI Journey - AI-LLM Dashboard', () => {
     await page.goto(`${HOST}/#/playground`);
     await page.waitForSelector('#test-prompt');
     await page.fill('#test-prompt', 'Olá, sistema! Teste de QA automatizado.');
+    if (await page.$('#test-model')) {
+      await page.fill('#test-model', 'qwen2.5:3b');
+    }
     // Se houver provider online, testamos, senão apenas validamos o botão
     const isRunDisabled = await page.$eval('#test-run', btn => (btn as HTMLButtonElement).disabled);
     if (!isRunDisabled) {
       await page.click('#test-run');
-      await page.waitForSelector('#test-output:not(.hidden)', { timeout: 30000 });
+      await page.waitForSelector('#test-output:not(.hidden)', { timeout: 75000 });
       console.log('✅ Playground: Teste de Inferência Real executado');
     } else {
       console.log('⚠️ Playground: Nenhum provider online detectado para inferência');

@@ -37,8 +37,18 @@ export interface ChatMessage {
   images?: string[];
 }
 
+export type RoutingPolicy =
+  | 'ACCOUNT_FIRST'
+  | 'API_FIRST'
+  | 'COST_OPTIMIZED'
+  | 'LOW_LATENCY'
+  | 'LOCAL_FIRST'
+  | 'AUTO';
+
 export interface CommonParams {
   provider?: string;
+  providerAccountId?: string;
+  routingPolicy?: RoutingPolicy;
   model?: string;
   cache?: boolean;
 }
@@ -199,6 +209,101 @@ export class apiplatform {
   /** Health da plataforma */
   health() {
     return this.request<{ success: boolean; status: string; providers: Record<string, any>; checks: Record<string, boolean>; uptime: number; timestamp: string }>('/v1/health', 'GET');
+  }
+
+  /** Lista contas de IA conectadas */
+  listAccounts(providerName?: string) {
+    const qs = providerName ? `?providerName=${encodeURIComponent(providerName)}` : '';
+    return this.request<{ success: boolean; accounts: unknown[] }>(`/v1/accounts${qs}`, 'GET');
+  }
+
+  /** Consulta catálogo de provedores e modos de autenticação suportados */
+  getProviderCatalog() {
+    return this.request<{ success: boolean; providers: Record<string, unknown> }>('/v1/accounts/providers', 'GET');
+  }
+
+  /** Conecta uma conta de provedor (API Key, OAuth ou Servidor Local) */
+  connectAccount(provider: string, params: {
+    displayName?: string;
+    authMode: 'apiKey' | 'oauth' | 'local';
+    apiKey?: string;
+    baseUrl?: string;
+    settings?: Record<string, unknown>;
+    enabled?: boolean;
+  }) {
+    return this.request<{ success: boolean; account?: unknown; authorizationUrl?: string; flowType?: string }>(
+      `/v1/accounts/${encodeURIComponent(provider)}/connect`,
+      'POST',
+      params,
+    );
+  }
+
+  /** Desconecta / revoga uma conta conectada */
+  disconnectAccount(accountId: string) {
+    return this.request<{ success: boolean; disconnected: boolean }>(`/v1/accounts/${encodeURIComponent(accountId)}/disconnect`, 'POST');
+  }
+
+  /** Renova credencial / token de uma conta */
+  refreshAccount(accountId: string) {
+    return this.request<{ success: boolean; refreshed: boolean }>(`/v1/accounts/${encodeURIComponent(accountId)}/refresh`, 'POST');
+  }
+
+  /** Executa teste real de integridade e latência na conta */
+  testAccount(accountId: string) {
+    return this.request<{ success: boolean; health: { ok: boolean; latencyMs: number | null; modelCount?: number | null } }>(
+      `/v1/accounts/${encodeURIComponent(accountId)}/test`,
+      'POST',
+    );
+  }
+
+  /** Consulta status da conta */
+  getAccountStatus(accountId: string) {
+    return this.request<{ success: boolean; status: unknown }>(`/v1/accounts/${encodeURIComponent(accountId)}/status`, 'GET');
+  }
+
+  /** Consulta consumo real de tokens e custos da conta (janelas 1h, 5h, 7d) */
+  getAccountUsage(accountId: string) {
+    return this.request<{ success: boolean; usage: unknown }>(`/v1/accounts/${encodeURIComponent(accountId)}/usage`, 'GET');
+  }
+
+  /** Consulta capacidades e modelos homologados para a conta */
+  getAccountCapabilities(accountId: string) {
+    return this.request<{ success: boolean; capabilities: unknown }>(`/v1/accounts/${encodeURIComponent(accountId)}/capabilities`, 'GET');
+  }
+}
+
+/**
+ * FenixIntelligenceClient
+ * Cliente canônico do FÊNIX OS para consumir o Multi-Account AI Gateway da API Platform.
+ */
+export class FenixIntelligenceClient extends apiplatform {
+  constructor(options: apiplatformOptions) {
+    super(options);
+  }
+
+  /**
+   * Executa uma inferência orquestrada pelo FÊNIX OS com roteamento inteligente
+   */
+  async orchestrate(params: {
+    prompt: string;
+    system?: string;
+    routingPolicy?: RoutingPolicy;
+    providerAccountId?: string;
+    preferredProvider?: string;
+    model?: string;
+    maxTokens?: number;
+    temperature?: number;
+  }) {
+    return this.text({
+      prompt: params.prompt,
+      system: params.system,
+      routingPolicy: params.routingPolicy ?? 'AUTO',
+      providerAccountId: params.providerAccountId,
+      provider: params.preferredProvider,
+      model: params.model,
+      maxTokens: params.maxTokens,
+      temperature: params.temperature,
+    });
   }
 }
 

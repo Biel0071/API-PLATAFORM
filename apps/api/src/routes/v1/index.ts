@@ -29,8 +29,10 @@ import {
   textSchema,
   upscaleSchema,
   visionSchema,
+  createProviderAttemptContext,
 } from '@api-platform/shared';
-import { execute, registry } from '../../services/ai.service';
+import { execute, registry, providerAccountPool } from '../../services/ai.service';
+import { providerAttemptTracker } from '../../services/provider-attempt.service';
 import { ExecutionGateway } from '../../services/execution-gateway.service';
 import { enqueue, enqueueAndWait, enqueueWithTiming, QueueName, queueStats, queueTiming } from '../../services/queue.service';
 import { prisma } from '../../lib/prisma';
@@ -49,8 +51,11 @@ import { repositoriesRoutes } from './repositories';
 import { monitoringRoutes } from './monitoring';
 import { browserQARoutes } from './browser-qa';
 import { visualIDERoutes } from './visual-ide';
+import { decideRoutes } from './decide';
+import { accountsRoutes } from './accounts';
 import { ConfigurationCenterService } from '../../services/configuration-center.service';
 import { SyncCenterService } from '../../services/sync-center.service';
+import { resolveComfyProviderSelection } from '../../services/comfy-provider.service';
 
 function resolveJobQueue(type: string, payload: Record<string, unknown>): QueueName {
   if (type === 'text' && payload.task === 'vision') {
@@ -79,12 +84,13 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   // Todas as rotas /v1 exigem API key + rate limit por chave
   app.addHook('onRequest', app.requireApiKey);
   const scopeByRoute: Record<string, string> = {
-    '/text': 'text', '/chat': 'chat', '/image': 'image', '/image-to-image': 'image',
+    '/text': 'text', '/chat': 'chat', '/decide': 'chat', '/image': 'image', '/image-to-image': 'image',
     '/video-to-image': 'image', '/remove-background': 'image', '/inpaint': 'image',
     '/outpaint': 'image', '/controlnet': 'image', '/upscale': 'image', '/vision': 'vision',
     '/embed': 'embed', '/embedding': 'embed', '/ocr': 'ocr', '/video': 'video', '/workflow': 'workflow',
     '/config': 'admin', '/sync/cluster': 'text', '/sync/heartbeat': 'text',
     '/queue/enqueue': 'text', '/queue/status': 'text', '/queue/stats': 'text',
+    '/comfyui/queue': 'image', '/comfyui/progress/:promptId': 'image', '/comfyui/cancel': 'image',
   };
   app.addHook('preHandler', async (req, reply) => {
     const requestProjectId = (req.body as { projectId?: string } | undefined)?.projectId;
@@ -154,6 +160,8 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   await app.register(monitoringRoutes);
   await app.register(browserQARoutes);
   await app.register(visualIDERoutes);
+  await app.register(decideRoutes);
+  await app.register(accountsRoutes);
 
   // ---------- Centro de ConfiguraÃ§Ã£o e Sync de Cluster ----------
   app.get('/config', { schema: { tags: ['v1'] } }, async () => {
@@ -251,6 +259,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       projectId: req.auth?.projectId,
       priority: payload.priority ? Number(payload.priority) : 5,
       callback: payload.callback ? JSON.parse(payload.callback as string) : undefined,
+      scopes: req.auth?.scopes,
     });
 
     return reply.code(202).send({
@@ -274,6 +283,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
         tenantId: req.auth?.tenantId,
         projectId: req.auth?.projectId,
         callback: body.callback,
+        scopes: req.auth?.scopes,
       });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', execution: 'async',
@@ -281,7 +291,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       });
     }
     try {
-      return await execute('chat', body, (p) => p.generateText(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+      return await execute('chat', body, (p) => p.generateText(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     } finally {
       release();
     }
@@ -291,16 +301,18 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/chat', { config: rlText, schema: { tags: ['v1'] } }, async (req, reply) => {
     console.log('[ENTRY] Recebida requisicao POST /v1/chat');
     const body = chatSchema.parse(req.body);
+    const headerPolicy = req.headers['x-routing-policy'] as any;
+    const routingPolicy = headerPolicy || body.routingPolicy || body.routing_policy;
     const tenantId = req.auth?.tenantId || 'default_tenant';
     
     // Agora OBRIGATORIAMENTE passa pelo ExecutionGateway que tem o router/compressor/retry
     try {
-      const { response } = await ExecutionGateway.execute(tenantId, body, (body as any).stream || false);
+      const { response } = await ExecutionGateway.execute(tenantId, { ...body, routingPolicy }, (body as any).stream || false, { scopes: req.auth?.scopes });
       return reply.send(response);
     } catch (err: any) {
-      req.log.error(err);
+      req.log.error({ statusCode: err?.statusCode ?? err?.status, errorCode: err?.code }, 'chat execution failed');
       return reply.status(err.status || 500).send({
-        error: { message: err.message, code: err.status || 500 }
+        error: { message: 'Provider request failed', code: err.status || 500 }
       });
     }
   });
@@ -309,12 +321,12 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/image', { config: rlImage, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = imageSchema.parse(req.body);
     if (!body.wait) {
-      const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+      const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const response = await execute('image', body, (p) => p.generateImage(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => p.generateImage(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: body.image ? 'image-to-image' : 'text-to-image', seed: body.seed });
   });
 
@@ -327,12 +339,12 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       // ficar pronta. wait:false devolve o jobId na hora; o chamador consulta
       // GET /v1/jobs/:id ate status=completed, sem nunca segurar uma conexao
       // HTTP proxiada por mais de 100s.
-      const queued = await enqueueWithTiming('image', { ...body, image: body.image, denoise: body.strength }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+      const queued = await enqueueWithTiming('image', { ...body, image: body.image, denoise: body.strength }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).imageToImage(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).imageToImage(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'image-to-image', seed: body.seed });
   });
 
@@ -342,7 +354,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/image-gallery', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
     const raw = imageGallerySchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'gallery' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
@@ -354,7 +366,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/image-multiangle', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
     const raw = multiAngleSchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'multiangle' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
@@ -363,7 +375,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/video-to-image', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
     const raw = videoToImageSchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'video-to-image' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
@@ -372,32 +384,32 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/video', { config: rlImage, schema: { tags: ['v1', 'video'] } }, async (req, reply) => {
     const raw = videoToImageSchema.parse(req.body);
     const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider, __kind: 'video-to-image' };
-    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const queued = await enqueueWithTiming('image', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
   });
   app.post('/remove-background', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = removeBackgroundSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).removeBackground(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).removeBackground(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, kind: 'remove-background' });
   });
 
   app.post('/inpaint', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = inpaintSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).inpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).inpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'inpaint', seed: body.seed });
   });
 
   app.post('/outpaint', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = outpaintSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).outpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).outpaint(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'outpaint', seed: body.seed });
   });
 
   app.post('/controlnet', { config: rlImage, schema: { tags: ['v1', 'image'] } }, async (req) => {
     const raw = controlnetSchema.parse(req.body); const body = { ...raw, provider: raw.provider === 'auto' ? undefined : raw.provider };
-    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).controlnet(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => (p as unknown as ImageProvider).controlnet(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, prompt: body.prompt, kind: 'controlnet-' + body.controlType, seed: body.seed });
   });
 
@@ -405,41 +417,41 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.post('/upscale', { config: rlImage, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = upscaleSchema.parse(req.body);
     if (!body.wait) {
-      const queued = await enqueueWithTiming('image', { ...body, __kind: 'upscale' }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+      const queued = await enqueueWithTiming('image', { ...body, __kind: 'upscale' }, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const response = await execute('image', body, (p) => (p as any).upscale(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const response = await execute('image', body, (p) => (p as any).upscale(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return persistImageResponse(response, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, kind: 'upscale' });
   });
 
   // ---------- Vision ----------
   app.post('/vision', { config: rlVision, schema: { tags: ['v1'] } }, async (req) => {
     const body = visionSchema.parse(req.body);
-    return execute('vision', body, (p) => p.vision(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    return execute('vision', body, (p) => p.vision(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
   });
 
   // ---------- Embeddings ----------
   app.post('/embed', { config: rlEmbed, schema: { tags: ['v1'] } }, async (req) => {
     const body = embedSchema.parse(req.body);
-    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
   });
 
   app.post('/embedding', { config: rlEmbed, schema: { tags: ['v1'] } }, async (req) => {
     const body = embedSchema.parse(req.body);
-    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    return execute('embedding', body, (p) => p.embed(body) as any, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
   });
   // ---------- OCR ----------
   app.post('/ocr', { config: rlText, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = ocrSchema.parse(req.body);
     if (!body.wait) {
-      const queued = await enqueueWithTiming('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+      const queued = await enqueueWithTiming('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
-    const { result } = await enqueueAndWait('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    const { result } = await enqueueAndWait('ocr', body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
     return result;
   });
 
@@ -451,6 +463,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       projectId: req.auth?.projectId,
       priority: body.priority,
       callback: body.callback,
+      scopes: req.auth?.scopes,
     });
     return reply.code(202).send({
       success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
@@ -503,6 +516,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
             projectId: req.auth?.projectId,
             priority: j.priority,
             callback: j.callback,
+            scopes: req.auth?.scopes,
           }) };
         } catch (error) {
           return { ok: false as const, index: offset + index, error: error instanceof Error ? error.message : String(error) };
@@ -575,12 +589,14 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/workflow', { config: rlText, schema: { tags: ['v1', 'image'] } }, async (req, reply) => {
-    if (!registry.has('comfyui')) return reply.code(503).send(fail('COMFYUI_NOT_CONFIGURED', 'ComfyUI nao configurado'));
-    const comfy = registry.get('comfyui') as ComfyUIProvider;
-    const health = await comfy.health();
-    if (!health.ok) return reply.code(503).send(fail('COMFYUI_OFFLINE', 'ComfyUI offline. Verifique servidor e URL.'));
-    const body = z.object({ workflowId: z.string().optional(), graph: z.record(z.any()).optional() })
+    const body = z.object({ workflowId: z.string().optional(), graph: z.record(z.any()).optional(), providerAccountId: z.string().trim().min(1).max(128).optional() })
       .refine((value) => value.workflowId || value.graph, 'Informe workflowId ou graph').parse(req.body);
+    let selection;
+    try {
+      selection = await resolveComfyProviderSelection(body.providerAccountId);
+    } catch (error: any) {
+      return reply.code(error?.statusCode ?? 503).send(fail(error?.code ?? 'COMFYUI_OFFLINE', 'ComfyUI indisponivel'));
+    }
     let graph = body.graph;
     if (body.workflowId) {
       const workflow = await prisma.imageWorkflow.findFirst({ where: { id: body.workflowId, enabled: true, provider: 'comfyui' } });
@@ -588,25 +604,27 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       graph = workflow.graph as Record<string, any>;
     }
     const started = Date.now();
-    const result = await comfy.executeWorkflow(graph as any);
-    return { success: true, provider: 'comfyui', model: result.model, executionTime: Date.now() - started, cached: false, tokens: {}, result: result.result };
+    const result = await providerAttemptTracker.observe(createProviderAttemptContext({ correlationId: req.id }), {
+      provider: 'comfyui', providerAccountId: selection.providerAccountId, capability: 'image',
+    }, () => selection.provider.executeWorkflow(graph as any));
+    return { success: true, provider: 'comfyui', providerAccountId: selection.providerAccountId, model: result.model, executionTime: Date.now() - started, cached: false, tokens: {}, result: result.result };
   });
 
   app.post('/audio', { config: rlAudio, schema: { tags: ['v1'] } }, async (req) => {
     const body = audioSchema.parse(req.body);
-    return execute('audio', body, (p) => p.audio(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    return execute('audio', body, (p) => p.audio(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
   });
 
   app.post('/mission', { config: rlMission, schema: { tags: ['v1'] } }, async (req, reply) => {
     const body = missionSchema.parse(req.body);
     if (body.async) {
-      const queued = await enqueueWithTiming('mission' as any, body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+      const queued = await enqueueWithTiming('mission' as any, body, { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
       return reply.code(202).send({
         success: true, ...queued, status: 'waiting', ...queueEntryPopulation(queued.queue),
       });
     }
     // Implementacao sincrona usa o novo Service de Mission
-    return execute('mission', body, (p) => p.mission ? p.mission(body) : (p as any).notSupported('mission'), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId });
+    return execute('mission', body, (p) => p.mission ? p.mission(body) : (p as any).notSupported('mission'), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
   });
   // ---------- Modelos ----------
   app.get('/models', { schema: { tags: ['v1'] } }, async (req) => {
@@ -645,6 +663,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       projectId: req.auth?.projectId,
       priority: body.priority,
       callback: body.callback,
+      scopes: req.auth?.scopes,
     });
     return reply.code(202).send({
       success: true,
@@ -717,33 +736,37 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   });
 
   // ---------- ComfyUI: progresso / fila / cancelamento ----------
-  app.get('/comfyui/queue', { schema: { tags: ['v1'] } }, async (_req, reply) => {
-    const comfy = comfyOrFail(reply);
+  app.get('/comfyui/queue', { schema: { tags: ['v1'] } }, async (req, reply) => {
+    const providerAccountId = (req.query as any)?.providerAccountId;
+    const comfy = await comfyOrFail(reply, providerAccountId, true);
     if (!comfy) return;
     return { success: true, queue: await comfy.getQueue() };
   });
 
   app.get('/comfyui/progress/:promptId', { schema: { tags: ['v1'] } }, async (req, reply) => {
-    const comfy = comfyOrFail(reply);
+    const providerAccountId = (req.query as any)?.providerAccountId;
+    const comfy = await comfyOrFail(reply, providerAccountId, true);
     if (!comfy) return;
     const { promptId } = req.params as { promptId: string };
     return { success: true, progress: await comfy.getProgress(promptId) };
   });
 
   app.post('/comfyui/cancel', { schema: { tags: ['v1'] } }, async (req, reply) => {
-    const comfy = comfyOrFail(reply);
+    const providerAccountId = (req.body as any)?.providerAccountId;
+    const comfy = await comfyOrFail(reply, providerAccountId, true);
     if (!comfy) return;
     const { promptId } = (req.body ?? {}) as { promptId?: string };
     await comfy.cancel(promptId);
     return { success: true };
   });
 
-  function comfyOrFail(reply: any): ComfyUIProvider | null {
-    if (!registry.has('comfyui')) {
-      reply.code(400).send(fail('PROVIDER_NOT_FOUND', 'comfyui nao esta configurado'));
+  async function comfyOrFail(reply: any, providerAccountId?: string, requireExplicitWhenAmbiguous = false): Promise<ComfyUIProvider | null> {
+    try {
+      return (await resolveComfyProviderSelection(providerAccountId, requireExplicitWhenAmbiguous)).provider;
+    } catch (error: any) {
+      reply.code(error?.statusCode ?? 503).send(fail(error?.code ?? 'COMFYUI_OFFLINE', error?.message ?? 'ComfyUI indisponivel'));
       return null;
     }
-    return registry.get('comfyui') as ComfyUIProvider;
   }
 }
 

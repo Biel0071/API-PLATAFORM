@@ -13,6 +13,9 @@ export const callbackSchema = z.object({
 
 const common = {
   provider: optionalAutoString,
+  providerAccountId: z.string().trim().min(1).max(128).optional(),
+  routingPolicy: z.enum(['ACCOUNT_FIRST', 'API_FIRST', 'COST_OPTIMIZED', 'LOW_LATENCY', 'LOCAL_FIRST', 'AUTO']).optional(),
+  routing_policy: z.enum(['ACCOUNT_FIRST', 'API_FIRST', 'COST_OPTIMIZED', 'LOW_LATENCY', 'LOCAL_FIRST', 'AUTO']).optional(),
   model: optionalAutoString,
   /**
    * Pista opcional de tarefa (ex.: "translation", "classification", "seo",

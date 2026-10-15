@@ -42,6 +42,11 @@ export interface CacheKeyParams {
   system?: string;
   tenant: string;
   input?: unknown;
+  providerAccountId?: string;
+}
+
+function isRedisAvailable(): boolean {
+  return !redis.status || redis.status === 'ready';
 }
 
 export class CacheService {
@@ -55,12 +60,18 @@ export class CacheService {
   private epoch = '';
 
   private async syncEpoch() {
-    const epoch = await redis.get('cache:epoch') || '0';
-    if (epoch !== this.epoch) { this.l1Cache.clear(); this.epoch = epoch; }
-    return epoch;
+    if (!isRedisAvailable()) return this.epoch || '0';
+    try {
+      const epoch = await redis.get('cache:epoch') || '0';
+      if (epoch !== this.epoch) { this.l1Cache.clear(); this.epoch = epoch; }
+      return epoch;
+    } catch {
+      return this.epoch || '0';
+    }
   }
 
   private async cacheKeys(): Promise<string[]> {
+    if (!isRedisAvailable()) return [];
     let cursor = '0';
     const keys = new Set<string>();
     do {
@@ -108,6 +119,7 @@ export class CacheService {
       tools: params.tools,
       system: params.system,
       tenant: params.tenant,
+      providerAccountId: params.providerAccountId,
       input: params.input,
     });
     return createHash('sha256').update(payload).digest('hex');
@@ -118,6 +130,9 @@ export class CacheService {
       const epoch = await this.syncEpoch();
       const l1 = this.l1Cache.get(key);
       if (l1) return { hit: 'L1', data: l1 };
+
+      if (!isRedisAvailable()) return { hit: 'MISS' };
+
       const l2 = await redis.get(`cache:v${epoch}:${key}`);
       if (l2) {
         const parsed = JSON.parse(l2);
@@ -127,17 +142,20 @@ export class CacheService {
       }
     } catch (err) {
       console.warn('[Cache L2] Error reading from redis', err);
+      const l1 = this.l1Cache.get(key);
+      if (l1) return { hit: 'L1', data: l1 };
     }
 
     return { hit: 'MISS' };
   }
 
   async set(key: string, data: ProviderResult<any>): Promise<void> {
-    // Save to L2
+    this.l1Cache.set(key, data, this.L1_TTL);
+    if (!isRedisAvailable()) return;
+
     try {
       const epoch = await this.syncEpoch();
       await redis.set(`cache:v${epoch}:${key}`, JSON.stringify(data), 'EX', this.L2_TTL);
-      this.l1Cache.set(key, data, this.L1_TTL);
     } catch (err) {
       console.warn('[Cache L2] Error writing to redis', err);
     }

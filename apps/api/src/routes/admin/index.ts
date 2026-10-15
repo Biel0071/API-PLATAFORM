@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
 import { overviewRoutes } from './overview';
 import { providersRoutes } from './providers';
+import { providerAccountsRoutes } from './provider-accounts';
 import { tenantsRoutes } from './tenants';
 import { keysRoutes } from './keys';
 import { workflowsRoutes } from './workflows';
@@ -44,6 +45,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
 
     await secured.register(overviewRoutes);
     await secured.register(providersRoutes);
+    await secured.register(providerAccountsRoutes);
     await secured.register(tenantsRoutes);
     await secured.register(keysRoutes);
     await secured.register(workflowsRoutes);

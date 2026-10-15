@@ -15,6 +15,7 @@ export async function imagesRoutes(secured: FastifyInstance): Promise<void> {
       prompt: z.string().default(''), negativePrompt: z.string().optional(), image: z.string().optional(), video: z.string().optional(),
       action: z.enum(['custom','new-angle','new-position','new-lighting','new-color','new-background','new-clothing','model-wearing','catalog','mockup','lifestyle','marketplace']).default('custom'),
       provider: z.string().optional(), model: z.string().optional(), strength: z.number().min(0).max(1).default(0.6),
+      providerAccountId: z.string().trim().min(1).max(128).optional(),
       width: z.number().int().min(64).max(4096).default(1024), height: z.number().int().min(64).max(4096).default(1024),
       frameCount: z.number().int().min(1).max(20).default(4), scale: z.number().min(1).max(8).default(4),
     }).parse(req.body);
@@ -27,23 +28,25 @@ export async function imagesRoutes(secured: FastifyInstance): Promise<void> {
     };
     const prompt = [body.prompt, presets[body.action]].filter(Boolean).join('. ');
     const provider = body.provider === 'auto' ? undefined : body.provider;
+    const providerAccountId = body.providerAccountId;
+    delete body.providerAccountId;
     if (body.operation === 'video-to-image') {
       if (!body.video) return reply.code(400).send(fail('VIDEO_REQUIRED','Envie um video'));
-      const jobId = await enqueue('image', { ...body, prompt, provider, __kind: 'video-to-image' });
+      const jobId = await enqueue('image', { ...body, prompt, provider, providerAccountId, __kind: 'video-to-image' }, { scopes: ['*'] });
       return reply.code(202).send({ success: true, jobId, status: 'waiting' });
     }
     if (body.operation === 'image-to-image' && !body.image) return reply.code(400).send(fail('IMAGE_REQUIRED','Envie uma imagem'));
     let response;
     if (body.operation === 'remove-background') {
       if (!body.image) return reply.code(400).send(fail('IMAGE_REQUIRED','Envie uma imagem'));
-      response = await execute('image', { ...body, provider }, (p) => (p as unknown as ImageProvider).removeBackground({ image: body.image!, provider, model: body.model }), { cache: false });
+      response = await execute('image', { ...body, provider, providerAccountId }, (p) => (p as unknown as ImageProvider).removeBackground({ image: body.image!, provider, model: body.model }), { cache: false, scopes: ['*'] });
     } else if (body.operation === 'upscale') {
       if (!body.image) return reply.code(400).send(fail('IMAGE_REQUIRED','Envie uma imagem'));
-      response = await execute('image', { ...body, provider }, (p) => (p as any).upscale({ image: body.image!, scale: body.scale, model: body.model }), { cache: false });
+      response = await execute('image', { ...body, provider, providerAccountId }, (p) => (p as any).upscale({ image: body.image!, scale: body.scale, model: body.model }), { cache: false, scopes: ['*'] });
     } else if (body.operation === 'image-to-image') {
-      response = await execute('image', { ...body, prompt, provider }, (p) => (p as unknown as ImageProvider).imageToImage({ ...body, image: body.image!, prompt, provider }), { cache: true });
+      response = await execute('image', { ...body, prompt, provider, providerAccountId }, (p) => (p as unknown as ImageProvider).imageToImage({ ...body, image: body.image!, prompt, provider }), { cache: true, scopes: ['*'] });
     } else {
-      response = await execute('image', { ...body, prompt, provider }, (p) => p.generateImage({ ...body, prompt }), { cache: true });
+      response = await execute('image', { ...body, prompt, provider, providerAccountId }, (p) => p.generateImage({ ...body, prompt }), { cache: true, scopes: ['*'] });
     }
     return persistImageResponse(response, { prompt, kind: body.action, seed: undefined });
   });

@@ -34,9 +34,10 @@ capacidade. Cada tenant pode ter os próprios defaults (`Tenant.defaultTextProvi
 
 ```
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_DEFAULT_MODEL=llama3
+OLLAMA_DEFAULT_MODEL=gemma4:latest
+OLLAMA_QUALITY_MODEL=gemma4:latest
 OLLAMA_FAST_MODEL=qwen2.5:3b
-OLLAMA_VISION_MODEL=moondream
+OLLAMA_VISION_MODEL=gemma3:4b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
