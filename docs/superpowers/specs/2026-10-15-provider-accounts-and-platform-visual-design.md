@@ -1,6 +1,6 @@
 # Contas de provedores e identidade visual da plataforma
 
-**Status:** proposta aprovada em conversa; aguardando revisão deste documento.
+**Status:** revisão técnica atualizada; aguardando aprovação desta versão.
 
 ## Objetivo
 
@@ -35,11 +35,11 @@ O estado “Online” só será mostrado após teste real bem-sucedido. Saúde a
 
 ## Uso e custo estimado
 
-`RequestLog` continuará representando uma chamada lógica, preservando a semântica dos relatórios existentes. Uma nova tabela `ProviderAttempt`, relacionada à chamada lógica, guardará cada tentativa, com conta, número da tentativa, modelo, duração, resultado, tokens e custo estimado. Assim, um fallback pode ser atribuído à conta que o executou sem contar uma chamada lógica várias vezes nos relatórios atuais. Se o provedor não devolver uso em uma falha, os tokens desconhecidos serão registrados como indisponíveis, sem estimativa inventada.
+`RequestLog` e `Usage` manterão seu comportamento atual para preservar os relatórios existentes. Uma nova tabela `ProviderAttempt` guardará cada chamada real a um provedor nos caminhos síncronos, no `ExecutionGateway` e nos workers. Cada registro conterá um identificador de correlação da chamada original, número da tentativa, provedor, modelo, duração, resultado, tokens disponíveis e custo estimado; o vínculo com conta será nulo somente para provedores internos ou sem conta configurada. Tentativas de fallback terão o mesmo identificador de correlação, permitindo contar chamadas distintas sem perder o gasto de cada conta. Se o provedor não devolver uso em uma falha, tokens e custo ficarão indisponíveis, sem estimativa inventada. Uma resposta do cache não criará tentativa nem será atribuída a uma conta.
 
-Os agregados existentes por tenant e provedor continuarão compatíveis. Logs anteriores à migração não serão atribuídos retroativamente a contas, pois não contêm essa identificação; continuarão disponíveis nos relatórios históricos por provedor.
+Os agregados existentes por tenant e provedor continuarão compatíveis. Logs anteriores à migração não serão atribuídos retroativamente a contas, pois não contêm essa identificação; continuarão disponíveis nos relatórios históricos por provedor. Métricas individuais usarão somente `ProviderAttempt` criado após a ativação do novo fluxo.
 
-A API administrativa fornecerá, por conta, chamadas lógicas distintas, número de tentativas, tokens de entrada e saída, tokens totais e custo estimado nas últimas cinco horas e nos últimos sete dias. As janelas serão móveis, calculadas pelo horário da tentativa. O custo será calculado com as tarifas de entrada e saída por mil tokens já registradas para o modelo, e gravado como fotografia no momento da chamada para não mudar quando uma tarifa for editada.
+A API administrativa fornecerá, por conta, chamadas distintas, número de tentativas, tokens de entrada e saída, tokens totais e custo estimado nas últimas cinco horas e nos últimos sete dias. As janelas serão móveis, calculadas pelo horário da tentativa. O custo será calculado com as tarifas de entrada e saída por mil tokens já registradas para o modelo, e gravado como fotografia no momento da chamada para não mudar quando uma tarifa for editada.
 
 Os valores serão rotulados como estimativas, nunca como faturas dos fornecedores. Quando não houver tarifa configurada, a interface mostrará os tokens e indicará custo indisponível em vez de inventar um valor. Erros de provedor e tentativas de fallback permanecerão visíveis na atribuição da conta quando houver uso registrado.
 
@@ -55,7 +55,7 @@ O layout deve permanecer funcional em 390 × 844, permitir navegação por tecla
 
 1. Adicionar o modelo de conta e a migração idempotente; preservar a conexão atual e validar a cópia das credenciais sem expô-las.
 2. Criar CRUD seguro por conta e vincular OAuth, teste de saúde e resolução de credenciais à conta selecionada.
-3. Atualizar os contratos e o roteador para seleção explícita, balanceamento automático e fallback limitado; registrar a conta e as tentativas no uso.
+3. Atualizar os contratos e o roteador para seleção explícita, balanceamento automático e fallback limitado; registrar tentativas por conta nos caminhos síncronos, no `ExecutionGateway` e nos workers.
 4. Criar agregações de cinco horas e sete dias e atualizar a tela de provedores para múltiplas contas.
 5. Aplicar o sistema visual e a marca às demais páginas, validar responsividade, acessibilidade e movimento reduzido.
 6. Fazer backup dos arquivos afetados, preservar diferenças próprias da VPS, publicar e testar a conexão com a API real.
@@ -66,7 +66,7 @@ O layout deve permanecer funcional em 390 × 844, permitir navegação por tecla
 - É possível criar, editar, testar e desconectar mais de uma conta para o mesmo provedor; OAuth, quando disponível, fica isolado por conta.
 - Chamadas automáticas alternam entre contas saudáveis, respeitam limites de fallback e atribuem cada tentativa à conta correta. Chamadas com conta explícita não mudam de conta silenciosamente.
 - Credenciais, códigos OAuth e tokens não aparecem em respostas, HTML, logs ou erros.
-- Tokens e estimativas agregam corretamente nas janelas móveis de cinco horas e sete dias, incluindo limites temporais, tentativas de fallback, chamadas lógicas distintas e tarifas ausentes; logs anteriores continuam sem atribuição individual.
+- `RequestLog` e `Usage` mantêm o comportamento atual; cada chamada real cria `ProviderAttempt`, cache hits não são atribuídos a contas, e métricas agregam corretamente as janelas móveis de cinco horas e sete dias, fallbacks, chamadas distintas e tarifas ausentes. Logs anteriores continuam sem atribuição individual.
 - Cobrir testes focados de migração/backfill, CRUD, OAuth aprovado/negado/expirado/repetido, seleção e fallback, métricas, erros de saúde, foco e Escape.
 - Validar todas as páginas no tamanho 390 × 844, navegação por teclado, preferência de movimento reduzido, suíte geral, lint e build.
 - Antes de publicação, salvar backup reversível e comparar a tela com a VPS; depois da publicação, confirmar a API real e que “Online” depende de teste bem-sucedido.
