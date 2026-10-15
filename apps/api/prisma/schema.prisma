@@ -101,7 +101,44 @@ model ProviderConfig {
   settings  Json?
   updatedAt DateTime @updatedAt
 
-  models ModelConfig[]
+  models         ModelConfig[]
+  accounts       ProviderAccount[] @relation("ProviderAccounts")
+  legacyAccount  ProviderAccount?  @relation("LegacyProviderAccount")
+}
+
+enum ProviderAccountAuthMode {
+  apiKey
+  oauth
+  local
+}
+
+model ProviderAccount {
+  id                         String                  @id @default(cuid())
+  providerId                 String
+  displayName                String
+  authMode                   ProviderAccountAuthMode
+  baseUrl                    String?
+  settings                   Json                    @default("{}")
+  credentialEncrypted        String?
+  oauthProvider              String?
+  oauthAccessTokenEncrypted  String?
+  oauthRefreshTokenEncrypted String?
+  oauthExpiresAt             DateTime?
+  oauthScope                 String?
+  oauthNeedsReauth           Boolean                 @default(false)
+  enabled                    Boolean                 @default(true)
+  disconnectedAt             DateTime?
+  healthOk                   Boolean?
+  healthCheckedAt            DateTime?
+  healthLatencyMs            Int?
+  legacyProviderConfigId     String?                 @unique
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  provider             ProviderConfig  @relation("ProviderAccounts", fields: [providerId], references: [id], onDelete: Restrict)
+  legacyProviderConfig ProviderConfig? @relation("LegacyProviderAccount", fields: [legacyProviderConfigId], references: [id], onDelete: SetNull)
+
+  @@index([providerId, enabled])
 }
 
 model ModelConfig {
