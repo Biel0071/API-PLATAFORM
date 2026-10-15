@@ -128,7 +128,8 @@ export async function loadProviderAccountRuntime(
   for (const binding of bindings) {
     if (!registry.has(binding.providerName)) registry.register(binding.provider);
   }
-  const pool = new ProviderAccountPool(async () => bindings, nextIndex);
+  const healthMaxAgeMs = Number(process.env.PROVIDER_ACCOUNT_HEALTH_MAX_AGE_MS || 3600_000);
+  const pool = new ProviderAccountPool(async () => bindings, nextIndex, healthMaxAgeMs);
   registry.setAccountPool(pool);
   return { registry, pool };
 }

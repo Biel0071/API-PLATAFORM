@@ -54,10 +54,8 @@ export function bootstrapKeyManagerFromEnv(env: Record<string, string | undefine
 bootstrapKeyManagerFromEnv();
 
 export class SmartRouterService {
-  private router: SmartModelRouter;
-
-  constructor() {
-    this.router = new SmartModelRouter(registry);
+  private get router(): SmartModelRouter {
+    return new SmartModelRouter(registry);
   }
 
   /**
