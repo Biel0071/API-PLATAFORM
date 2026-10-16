@@ -15,6 +15,7 @@ export type RoutingPolicy =
   | 'COST_OPTIMIZED'
   | 'LOW_LATENCY'
   | 'LOCAL_FIRST'
+  | 'QUALITY_FIRST'
   | 'AUTO';
 
 export interface RouteCandidate {
@@ -289,6 +290,18 @@ export class SmartModelRouter {
         }
         break;
 
+      case 'QUALITY_FIRST':
+        if (modelInfo.pricingTier === 'premium') {
+          policyScore = 50;
+        } else if (modelInfo.pricingTier === 'standard') {
+          policyScore = 35;
+        } else if (isAccount) {
+          policyScore = 30;
+        } else {
+          policyScore = 15;
+        }
+        break;
+
       case 'AUTO':
       default:
         if (isLocal) {
@@ -303,7 +316,12 @@ export class SmartModelRouter {
         break;
     }
 
-    return quotaScore + latencyScore + healthScore + policyScore;
+    let codingBonus = 0;
+    if (requiredCaps.includes('coding') && modelInfo.capabilities.includes('coding')) {
+      codingBonus = 10;
+    }
+
+    return quotaScore + latencyScore + healthScore + policyScore + codingBonus;
   }
 
   /**

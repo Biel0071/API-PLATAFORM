@@ -1302,19 +1302,74 @@ code {
 .provider-dialog-actions { border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.25rem; }
 .provider-dialog-actions button { min-height: 44px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.icon-svg {
+  display: inline-block;
+  vertical-align: -2px;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-xs);
+  line-height: 1.3;
+}
+.tier-badge.tier-plus {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+.tier-badge.tier-pro {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+.tier-badge.tier-ultra {
+  background: rgba(192, 132, 252, 0.14);
+  color: #c084fc;
+  border: 1px solid rgba(192, 132, 252, 0.45);
+  box-shadow: 0 0 8px rgba(192, 132, 252, 0.18);
+}
+.tier-badge.tier-enterprise {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+.tier-badge.tier-dedicated {
+  background: rgba(96, 165, 250, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.4);
+}
+.tier-badge.tier-free {
+  background: rgba(156, 163, 175, 0.1);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.25);
+}
 .provider-portal-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8rem;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
   text-decoration: none;
   min-height: 44px;
   padding: 0.55rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
+  transition: all 0.15s ease;
 }
 .provider-portal-link:hover {
   color: var(--text-primary);
-  border-color: var(--border-light);
+  border-color: var(--accent);
+  background: var(--bg-base);
 }
 .provider-portal-helper {
   margin-top: 0.5rem;
@@ -1322,15 +1377,17 @@ code {
 .provider-open-browser-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   font-size: 0.82rem;
   text-decoration: none;
-  padding: 0.45rem 0.75rem;
+  padding: 0.5rem 0.85rem;
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   border: 1px solid var(--border);
   color: var(--accent);
   cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
 }
 .provider-open-browser-btn:hover {
   border-color: var(--accent);

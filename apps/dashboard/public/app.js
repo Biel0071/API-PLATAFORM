@@ -629,6 +629,23 @@
       };
       const providerTitle = (name) => details[name]?.title || name;
       const logo = (name) => `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${name}.svg" width="28" height="28" alt="" /></span>`;
+      const svgClock = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
+      const svgCalendar = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`;
+      const svgBolt = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`;
+      const svgExternal = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
+
+      const getProviderTier = (name, cfg, live) => {
+        if (cfg?.settings?.accountTier) {
+          return cfg.settings.accountTier.toUpperCase();
+        }
+        if (name === 'ollama') return 'LOCAL 24/7';
+        if (name === 'gemini') return 'PRO / ULTRA';
+        if (name === 'openai') return 'PLUS / PRO';
+        if (name === 'anthropic') return 'PRO / TEAM';
+        if (name === 'groq') return 'LPU ULTRA';
+        if (details[name]?.kind === 'local' || details[name]?.kind === 'image') return 'DEDICATED';
+        return 'DEVELOPER';
+      };
       const fmtTokens = (n) => {
         if (!n || n <= 0) return '0 tokens';
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M tokens';
@@ -703,9 +720,14 @@
           const status = cfg?.oauthNeedsReauth ? ['warn', 'Nova autorização necessária'] : online ? ['ok', 'Online'] : live?.health?.ok === false ? ['error', 'Indisponível'] : cfg?.enabled === false ? ['muted', 'Desativado'] : configured ? ['warn', 'Verificar conexão'] : ['muted', 'Não conectado'];
           const modelNames = (live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name).filter(Boolean);
           const authLabel = cfg?.settings?.authMode === 'oauth' && cfg?.hasOAuth ? `<span class="provider-auth-label">Conta ${esc(name === 'gemini' ? 'Google' : 'Hugging Face')}</span>` : '';
+          const tierName = getProviderTier(name, cfg, live);
+          const tierLower = tierName.toLowerCase();
+          const tierClass = tierLower.includes('ultra') ? 'tier-ultra' : tierLower.includes('pro') ? 'tier-pro' : tierLower.includes('plus') ? 'tier-plus' : tierLower.includes('enterprise') ? 'tier-enterprise' : (tierLower.includes('local') || tierLower.includes('24/7') || tierLower.includes('dedicated')) ? 'tier-dedicated' : 'tier-free';
+          const tierBadgeHtml = `<span class="tier-badge ${tierClass}">${esc(tierName)}</span>`;
+
           return `<article class="provider-card" data-provider-card="${name}">
             <div class="provider-card-heading">${logo(name)}<div><h3>${esc(providerTitle(name))}</h3><p>${esc(details[name].description)}</p></div></div>
-            <div class="provider-card-status"><span class="provider-status ${status[0]}"><span aria-hidden="true">●</span> ${status[1]}</span>${authLabel}${defaults?.chat === name ? '<span class="provider-default-label">Padrão de chat</span>' : ''}${online && live.health.latencyMs != null ? `<span class="muted">${fmtMs(live.health.latencyMs)}</span>` : ''}</div>
+            <div class="provider-card-status"><span class="provider-status ${status[0]}"><span aria-hidden="true">●</span> ${status[1]}</span>${tierBadgeHtml}${authLabel}${defaults?.chat === name ? '<span class="provider-default-label">Padrão de chat</span>' : ''}${online && live.health.latencyMs != null ? `<span class="muted">${fmtMs(live.health.latencyMs)}</span>` : ''}</div>
             ${configured ? `<p class="provider-models" title="${esc(modelNames.join(', '))}">${modelNames.length ? `${modelNames.length} ${modelNames.length === 1 ? 'modelo' : 'modelos'} · ${esc(modelNames.slice(0, 2).join(', '))}` : cfg?.settings?.defaultModel ? `Modelo: ${esc(cfg.settings.defaultModel)}` : 'Nenhum modelo disponível'}</p>` : ''}
             ${(() => {
               const displayModels = modelNames.length > 0 ? modelNames : (defaultPortals[name]?.models || []);
@@ -722,24 +744,24 @@
             <div class="provider-usage-panel" aria-label="Uso de tokens da conta">
               <div class="provider-usage-row">
                 <div class="provider-usage-item">
-                  <span class="usage-label">⏱️ Uso por hora (5h)</span>
+                  <span class="usage-label">${svgClock} Consumo Horário (5h)</span>
                   <span class="usage-tokens">${fmtTokens(usageData.h5.tokens)}</span>
                   <small class="muted">${usageData.h5.calls} ${usageData.h5.calls === 1 ? 'chamada' : 'chamadas'} · ${fmtCost(usageData.h5.cost)}</small>
                 </div>
                 <div class="provider-usage-item">
-                  <span class="usage-label">📅 Uso semanal (7d)</span>
+                  <span class="usage-label">${svgCalendar} Consumo Semanal (7d)</span>
                   <span class="usage-tokens">${fmtTokens(usageData.d7.tokens)}</span>
                   <small class="muted">${usageData.d7.calls} ${usageData.d7.calls === 1 ? 'chamada' : 'chamadas'} · ${fmtCost(usageData.d7.cost)}</small>
                 </div>
               </div>
-              ${quota ? `<div class="provider-quota-badge"><span>⚡ Limite da conta:</span> <strong>${esc(quota)}</strong></div>` : ''}
-            </div>` : (quota ? `<div class="provider-quota-badge" style="margin: 0.25rem 0;"><span>⚡ Quota estimada:</span> <strong>${esc(quota)}</strong></div>` : '');
+              ${quota ? `<div class="provider-quota-badge"><span>${svgBolt} Quota & Limite:</span> <strong>${esc(quota)}</strong></div>` : ''}
+            </div>` : (quota ? `<div class="provider-quota-badge" style="margin: 0.25rem 0;"><span>${svgBolt} Quota Estimada:</span> <strong>${esc(quota)}</strong></div>` : '');
             })()}
             <div class="provider-card-actions">
               <button class="${configured ? 'ghost' : ''}" data-connect-provider="${name}">${configured ? 'Configurar' : 'Conectar conta'}<span class="sr-only"> ${esc(providerTitle(name))}</span></button>
               ${(() => {
                 const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
-                return portalUrl ? `<a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">🌐 Portal ↗</a>` : '';
+                return portalUrl ? `<a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">${svgExternal} Acessar Portal ↗</a>` : '';
               })()}
               ${live ? `<button class="ghost" data-test-provider="${name}" aria-label="Testar conexão ${esc(providerTitle(name))}">Testar conexão</button>` : ''}
               ${cfg?.hasOAuth ? `<button class="ghost" data-disconnect-oauth="${name}">Desconectar conta</button>` : ''}
@@ -795,9 +817,19 @@
         $('#p-auth-method-field').hidden = !cloud;
         const portalUrl = connection.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
         $('#p-auth-methods').innerHTML = cloud ? `
-          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API key ou token</strong><small>Use uma credencial gerada no portal do provedor.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">🌐 Abrir navegador para obter chave ↗</a>` : ''}</small></span></label>
-          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">🌐 Abrir Google AI Studio no navegador ↗</a>` : ''}</small></span></div>` : ''}
+          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API Key ou Token de Sessão</strong><small>Use uma credencial gerada no portal oficial ou token de programação da conta.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir portal no navegador para obter chave ↗</a>` : ''}</small></span></label>
+          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador ↗</a>` : ''}</small></span></div>` : ''}
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
+
+        const defaultTierForProvider = (n) => {
+          if (n === 'gemini') return 'pro';
+          if (n === 'openai') return 'plus';
+          if (n === 'anthropic') return 'pro';
+          if (n === 'ollama' || n === 'comfyui' || n === 'forge' || n === 'invokeai' || n === 'lmstudio') return 'dedicated';
+          return 'free';
+        };
+        const currentTier = cfg?.settings?.accountTier || defaultTierForProvider(name);
+        if ($('#p-tier')) $('#p-tier').value = currentTier;
 
         const suggestedModels = (live?.models || []).map(m => typeof m === 'string' ? m : m.id || m.name).filter(Boolean);
         const fallbackModels = defaultPortals[name]?.models || [];
@@ -849,7 +881,17 @@
             <label class="provider-field-wide" for="p-name">Provedor<select id="p-name">${choices.map(id => `<option value="${id}">${esc(providerTitle(id))}</option>`).join('')}</select></label>
             <input type="hidden" id="p-auth-mode" value="apiKey" />
             <fieldset class="provider-field-wide provider-auth-method-field" id="p-auth-method-field"><legend>Forma de conexão</legend><div id="p-auth-methods"></div></fieldset>
-            <label class="provider-field-wide" for="p-key" id="p-key-field">API key / Token<input id="p-key" type="password" autocomplete="new-password" /></label>
+            <label class="provider-field-wide" for="p-tier">Plano / Tier de Conta
+              <select id="p-tier">
+                <option value="plus">Plus (ChatGPT Plus / Developer Tier 1)</option>
+                <option value="pro">Pro (Gemini Pro / Claude Pro / OpenAI Pro)</option>
+                <option value="ultra">Ultra (Gemini Ultra / Vertex AI Dedicated / Enterprise)</option>
+                <option value="enterprise">Enterprise (Organização Corporativa)</option>
+                <option value="dedicated">Dedicated Host (Ollama / Local GPU 24/7)</option>
+                <option value="free">Free / Gratuito</option>
+              </select>
+            </label>
+            <label class="provider-field-wide" for="p-key" id="p-key-field">API Key / Token de Sessão<input id="p-key" type="password" autocomplete="new-password" /></label>
             <label class="provider-field-wide" for="p-url">Endpoint / Base URL<input id="p-url" type="url" /></label>
             <label class="provider-field-wide" for="p-account" id="p-account-field">Account ID (Cloudflare)<input id="p-account" /></label>
             <label class="provider-field-wide" for="p-model">Modelo padrão
@@ -945,6 +987,7 @@
             accountId: $('#p-account').value.trim(), defaultModel: $('#p-model').value.trim(),
             embedModel: $('#p-embed').value.trim(),
             authMode: $('#p-auth-mode').value,
+            accountTier: $('#p-tier') ? $('#p-tier').value : undefined,
           };
           const saveGeneration = ++providerDataGeneration;
           saving = true;

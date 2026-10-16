@@ -64,6 +64,8 @@ export interface ProviderAccountView {
   hasCredential: boolean;
   oauthNeedsReauth: boolean;
   health: { ok: boolean | null; checkedAt: string | null; latencyMs: number | null };
+  accountTier?: string;
+  defaultModel?: string;
 }
 
 class ProviderAccountError extends Error {
@@ -98,6 +100,17 @@ export function sanitizeProviderEndpoint(value: string | null | undefined): stri
     return null;
   }
 }
+
+const validAccountTiers = new Set([
+  'free',
+  'tier1',
+  'plus',
+  'pro',
+  'ultra',
+  'enterprise',
+  'dedicated',
+]);
+
 function accountSettings(
   providerName: string,
   value: ProviderAccountInput['settings'],
@@ -105,14 +118,25 @@ function accountSettings(
   const settings = value ?? {};
   for (const [key, entry] of Object.entries(settings)) {
     // An explicit allowlist keeps credential-shaped values out of arbitrary JSON.
-    if (
-      providerName !== 'cloudflare' ||
-      key !== 'accountId' ||
-      typeof entry !== 'string' ||
-      entry.length > 256
-    ) {
-      throw new ProviderAccountError('Configurações não permitidas para este provedor.');
+    if (providerName === 'cloudflare' && key === 'accountId') {
+      if (typeof entry !== 'string' || entry.length > 256) {
+        throw new ProviderAccountError('Configurações não permitidas para este provedor.');
+      }
+      continue;
     }
+    if (key === 'accountTier') {
+      if (typeof entry !== 'string' || !validAccountTiers.has(entry.toLowerCase())) {
+        throw new ProviderAccountError('Tier de conta inválido.');
+      }
+      continue;
+    }
+    if (key === 'defaultModel') {
+      if (typeof entry !== 'string' || entry.length > 128) {
+        throw new ProviderAccountError('Configurações não permitidas para este provedor.');
+      }
+      continue;
+    }
+    throw new ProviderAccountError('Configurações não permitidas para este provedor.');
   }
   return settings;
 }
@@ -137,6 +161,7 @@ function validateConnection(
 }
 type AccountWithProvider = ProviderAccount & { provider: ProviderConfig };
 function view(account: AccountWithProvider): ProviderAccountView {
+  const settings = objectSettings(account.settings);
   return {
     id: account.id,
     providerName: account.provider.name,
@@ -159,6 +184,8 @@ function view(account: AccountWithProvider): ProviderAccountView {
       checkedAt: account.healthCheckedAt?.toISOString() ?? null,
       latencyMs: account.healthLatencyMs,
     },
+    accountTier: typeof settings.accountTier === 'string' ? settings.accountTier : undefined,
+    defaultModel: typeof settings.defaultModel === 'string' ? settings.defaultModel : undefined,
   };
 }
 const unknownHealth = { healthOk: null, healthCheckedAt: null, healthLatencyMs: null };

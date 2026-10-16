@@ -20,6 +20,7 @@ export interface ProviderForm {
   embedModel?: string;
   defaultChat?: boolean;
   authMode?: 'apiKey' | 'oauth' | 'local';
+  accountTier?: string;
 }
 
 type StoredSettings = Omit<ProviderForm, 'name' | 'enabled' | 'apiKey'> & {
@@ -39,6 +40,7 @@ export async function saveProviderConfig(form: ProviderForm): Promise<void> {
       embedModel: form.embedModel === undefined ? old.embedModel : form.embedModel || undefined,
       defaultChat: form.defaultChat ?? old.defaultChat,
       authMode: form.authMode ?? old.authMode ?? 'apiKey',
+      accountTier: form.accountTier === undefined ? old.accountTier : form.accountTier || undefined,
       apiKeyEncrypted: form.apiKey?.trim() ? encryptCredential(form.apiKey.trim(), env.JWT_SECRET) : old.apiKeyEncrypted,
       oauth: old.oauth,
     };
@@ -79,6 +81,7 @@ export async function listProviderConfigs() {
         embedModel: settings.embedModel,
         defaultChat: settings.defaultChat,
         authMode: settings.authMode,
+        accountTier: settings.accountTier,
       },
       hasApiKey: Boolean(settings.apiKeyEncrypted),
       hasOAuth: Boolean(oauth?.accessTokenEncrypted),

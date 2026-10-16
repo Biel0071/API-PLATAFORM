@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { fail } from '@api-platform/shared';
 import {
@@ -152,6 +152,7 @@ export async function providersRoutes(secured: FastifyInstance): Promise<void> {
         defaultModel: z.string().trim().max(256).optional(),
         embedModel: z.string().trim().max(256).optional(),
         authMode: z.enum(['apiKey', 'oauth', 'local']).optional(),
+        accountTier: z.enum(['free', 'tier1', 'plus', 'pro', 'ultra', 'enterprise', 'dedicated']).optional(),
       })
       .superRefine((body, context) => {
         const localProviders = ['ollama', 'lmstudio', 'comfyui', 'forge', 'invokeai'];
