@@ -53,6 +53,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-apiplatform}:${POSTGRES_PASSWORD:-apiplatform_secret_pass}@postgres:5432/${POSTGRES_DB:-apiplatform}?schema=public
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-apiplatform_prod_jwt_secret}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
+      COMFYUI_BASE_URL: ${COMFYUI_BASE_URL_DOCKER:-http://host.docker.internal:8188}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT_HOST:-3001}:3000"
 
@@ -70,6 +74,10 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-apiplatform}:${POSTGRES_PASSWORD:-apiplatform_secret_pass}@postgres:5432/${POSTGRES_DB:-apiplatform}?schema=public
       REDIS_URL: redis://redis:6379
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
+      COMFYUI_BASE_URL: ${COMFYUI_BASE_URL_DOCKER:-http://host.docker.internal:8188}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   nginx:
     image: nginx:alpine
