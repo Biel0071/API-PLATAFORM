@@ -68,8 +68,27 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
       ollama: 'Ollama Local 24/7',
     };
     const displayName = parsed.displayName || `${providerTitles[parsed.providerName] || parsed.providerName.toUpperCase()} (${tier.toUpperCase()})`;
-    const bridgeToken = `fenix_bridge_${tier}_${parsed.providerName}_${crypto.randomBytes(10).toString('hex')}`;
-    const effectiveKey = isLocal ? undefined : (parsed.apiKey?.trim() || bridgeToken);
+    const envKeyByProvider: Record<string, string | undefined> = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY || process.env.GEMINI_ACCESS_TOKEN,
+      xai: process.env.GROK_API_KEY,
+      groq: process.env.GROQ_API_KEY,
+      openrouter: process.env.OPENROUTER_API_KEY,
+      huggingface: process.env.HUGGINGFACE_API_KEY,
+      cloudflare: process.env.CLOUDFLARE_API_TOKEN,
+    };
+    const rawEnvKey = envKeyByProvider[parsed.providerName]?.trim();
+    const realEnvKey = rawEnvKey && !rawEnvKey.startsWith('fenix_bridge_') ? rawEnvKey : undefined;
+    const effectiveKey = isLocal ? undefined : (parsed.apiKey?.trim() || realEnvKey);
+    if (!isLocal && !effectiveKey && !parsed.accountId) {
+      return reply.code(400).send({
+        success: false,
+        error: {
+          message: `Nenhuma API key / token real encontrado no ambiente para ${providerTitles[parsed.providerName] || parsed.providerName}. Cole sua chave oficial no campo API Key / Token ou autentique via OAuth.`,
+        },
+      });
+    }
     const effectiveUrl = parsed.baseUrl?.trim() || (parsed.providerName === 'ollama' ? (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434') : undefined);
     const settings: Record<string, string> = {
       defaultModel: resolvedModel,

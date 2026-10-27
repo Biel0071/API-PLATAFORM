@@ -822,7 +822,7 @@
         },
         ollama: {
           portalUrl: 'http://localhost:11434',
-          models: ['llama3.2', 'qwen2.5-coder', 'mistral', 'nomic-embed-text'],
+          models: ['qwen2.5-coder:1.5b', 'llama3.2:1b', 'gemma3:1b', 'deepseek-r1:1.5b', 'qwen2.5:3b', 'qwen3.5:0.8b', 'qwen2.5:0.5b', 'all-minilm'],
         },
         lmstudio: {
           portalUrl: 'http://localhost:1234',
@@ -853,6 +853,17 @@
         cloudflare: { label: 'Cloudflare Workers AI · Tokens de Programação', defaultTier: 'pro', defaultModel: '@cf/meta/llama-3.1-8b-instruct', quotaLabel: 'Pro (25M)' },
         ollama: { label: 'Ollama Dedicated GPU · Motor Local 24/7', defaultTier: 'dedicated', defaultModel: 'qwen2.5-coder:1.5b', quotaLabel: 'Ilimitado 24/7' },
       };
+      const openSourceModelRoles = {
+        'qwen2.5-coder:1.5b': { alias: 'Claude Code Open · JEV', role: 'Código, Arquitetura & Refatoração', engine: 'Qwen 2.5 Coder 1.5B' },
+        'llama3.2:1b': { alias: 'ChatGPT Open · Meta Llama', role: 'Conversação Geral & Síntese Rápida', engine: 'Llama 3.2 1B Instruct' },
+        'gemma3:1b': { alias: 'Google Gemma 3 Open', role: 'Análise Estruturada & Instruções', engine: 'Gemma 3 1B' },
+        'deepseek-r1:1.5b': { alias: 'DeepSeek R1 Open', role: 'Raciocínio Lógico Profundo (CoT)', engine: 'DeepSeek R1 1.5B' },
+        'qwen2.5:3b': { alias: 'Qwen 2.5 3B Orchestrator', role: 'Orquestração DAG & Consolidação', engine: 'Qwen 2.5 3B' },
+        'qwen3.5:0.8b': { alias: 'Laya System 1 · Vision', role: 'Decisão Instantânea & Visão Leve', engine: 'Qwen 3.5 0.8B' },
+        'qwen2.5:0.5b': { alias: 'Fast Intent Router', role: 'Triagem de Intenção em Baixa Latência', engine: 'Qwen 2.5 0.5B' },
+        'all-minilm': { alias: 'Embeddings Semânticos RAG', role: 'Vetorização & Memória de Execução', engine: 'All-MiniLM-L6-v2' },
+        'all-minilm:latest': { alias: 'Embeddings Semânticos RAG', role: 'Vetorização & Memória de Execução', engine: 'All-MiniLM-L6-v2' },
+      };
       const logo = (name) => `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${name}.svg" width="28" height="28" alt="" /></span>`;
       const svgExternal = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 
@@ -879,7 +890,8 @@
           <section class="provider-section" aria-labelledby="p-catalog-title"><div class="provider-section-heading"><div><h2 id="p-catalog-title">Conectar uma conta</h2><p class="muted">Adicione uma API key ou conecte um servidor próprio.</p></div></div><div id="p-catalog" class="provider-grid"></div></section>
           <p class="provider-security muted">Suas credenciais são criptografadas e nunca são exibidas após o cadastro.</p>
         </section>
-        <dialog id="provider-dialog" class="provider-dialog" aria-labelledby="p-dialog-title" aria-describedby="p-dialog-description"></dialog>`;
+        <dialog id="provider-dialog" class="provider-dialog" aria-labelledby="p-dialog-title" aria-describedby="p-dialog-description"></dialog>
+        <dialog id="ollama-models-dialog" class="provider-dialog" aria-labelledby="ollama-models-title"></dialog>`;
 
       const dialog = $('#provider-dialog');
       let returnFocus;
@@ -961,7 +973,8 @@
                     : health?.ok === true && latency === null ? ['muted', 'Online · latência não medida']
                       : health?.ok === true ? [health.latencyMs <= 1000 ? 'ok' : health.latencyMs <= 3000 ? 'warn' : 'error', (health.latencyMs <= 1000 ? 'Online' : 'Lenta') + ' · ' + latency + ' · ' + freshness]
                         : ['muted', 'Verificar conexão'];
-          const modelNames = [...new Set([account?.defaultModel, ...(live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name)].filter(Boolean))];
+          const useLiveModels = name === 'ollama' || Boolean(account && live?.health?.ok);
+          const modelNames = [...new Set([account?.defaultModel, ...(useLiveModels ? (live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name) : [])].filter(Boolean))];
           const displayModels = modelNames.length ? modelNames : defaultPortals[name]?.models || [];
           const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
           const result = account && testResults.get(account.id);
@@ -970,10 +983,10 @@
             '<div class="provider-card-heading">' + logo(name) + '<div><h3>' + esc(account?.displayName || providerTitle(name)) + '</h3><p>' + esc(account ? providerTitle(name) : details[name].description) + '</p></div></div>' +
             '<div class="provider-card-status"><span class="provider-status ' + status[0] + '"><span aria-hidden="true">●</span> ' + status[1] + '</span>' + (account?.accountTier ? '<span class="tier-badge">' + esc(account.accountTier.toUpperCase()) + '</span>' : '') + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>' +
             (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + '</p>' : '') +
-            '<div class="provider-card-model-tags" aria-label="Modelos disponíveis ou sugeridos">' + displayModels.slice(0, 3).map(model => '<span class="model-tag" title="' + esc(model) + '">' + esc(model) + '</span>').join('') + '</div>' +
+            '<div class="provider-card-model-tags" aria-label="Modelos disponíveis ou sugeridos">' + (name === 'ollama' ? displayModels : displayModels.slice(0, 3)).map(model => { const osInfo = openSourceModelRoles[model]; return '<span class="model-tag" title="' + esc(osInfo ? `${model} — ${osInfo.alias} (${osInfo.role})` : model) + '">' + esc(model) + (osInfo ? ' · ' + esc(osInfo.alias.split(' · ')[0]) : '') + '</span>'; }).join('') + '</div>' +
             (account ? '<div class="provider-usage-panel" data-account-usage="' + esc(account.id) + '" aria-label="Uso estimado da conta">' + renderUsage(account) + '</div>' : '') +
-            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button><button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>') +
-            (portalUrl ? '<a href="' + esc(portalUrl) + '" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">' + svgExternal + ' Acessar Portal</a>' : '') + '</div>' +
+            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>' + (details[name]?.kind === 'cloud' ? '<button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>' : '')) +
+            (name === 'ollama' ? '<button type="button" class="ghost provider-open-models-btn"' + disabled + ' data-open-ollama-models="' + esc(account?.id || 'catalog') + '">Abrir Modelos Open Source (' + displayModels.length + ')</button>' : (portalUrl && details[name]?.kind === 'cloud' ? '<a href="' + esc(portalUrl) + '" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">' + svgExternal + ' Acessar Portal</a>' : '')) + '</div>' +
             (account ? '<p class="provider-test-result ' + esc(result?.kind || '') + '" data-account-result="' + esc(account.id) + '" role="status">' + esc(result?.message || '') + '</p>' : '') + '</article>';
         };
         $('#p-connected').innerHTML = accounts.length ? accounts.map(account => renderCard(account.providerName, account)).join('') : '<div class="provider-empty"><h3>Sua primeira conexão começa aqui</h3><p class="muted">Escolha um provedor abaixo ou clique em + para adicionar.</p></div>';
@@ -998,6 +1011,7 @@
         const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-auth-mode').value = mode;
         $('#p-key-field').hidden = !cloud || mode !== 'apiKey';
+        if ($('#p-token-bridge')) $('#p-token-bridge').hidden = !cloud;
         const autoPullTier = !selectedAccount && ['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier')?.value || 'free');
         $('#p-key').required = cloud && mode === 'apiKey' && !hasApiKey && !autoPullTier;
         if (cloud && mode === 'apiKey' && !hasApiKey) {
@@ -1398,6 +1412,86 @@
       content().querySelector('.providers-page').addEventListener('click', async event => {
         const connect = event.target.closest('[data-connect-provider]');
         if (connect) { openProvider(connect.dataset.connectProvider, connect); return; }
+        const openOllamaBtn = event.target.closest('[data-open-ollama-models]');
+        if (openOllamaBtn && !openOllamaBtn.disabled) {
+          const ollamaDialog = $('#ollama-models-dialog');
+          const ollamaLive = providers.find(p => p.name === 'ollama');
+          const ollamaAccount = accounts.find(a => a.providerName === 'ollama');
+          const rawModels = ollamaLive?.models?.length ? ollamaLive.models : (defaultPortals.ollama?.models || []).map(id => ({ id, name: id }));
+          const currentDefault = ollamaAccount?.defaultModel || 'qwen2.5-coder:1.5b';
+          ollamaDialog.innerHTML = `<div class="provider-dialog-content">
+            <button type="button" id="ollama-models-close" class="ghost provider-dialog-close" aria-label="Fechar modelos do Ollama">×</button>
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">${logo('ollama')}<div><h2 id="ollama-models-title" style="margin:0;">Modelos Open Source no Ollama</h2><p class="muted" style="margin:0.15rem 0 0;">Modelos reais ativos no servidor (${esc(ollamaAccount?.baseUrl || 'http://host.docker.internal:11434')}) e seu papel na orquestração</p></div></div>
+            <div class="ollama-models-list" style="display:flex;flex-direction:column;gap:0.65rem;margin:1rem 0;max-height:58vh;overflow-y:auto;">
+              ${rawModels.map(m => {
+                const id = typeof m === 'string' ? m : (m.id || m.name);
+                const size = m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo';
+                const info = openSourceModelRoles[id] || { alias: 'Open Source Engine', role: 'Inferência Local 24/7', engine: id };
+                const isDefault = currentDefault === id;
+                return `<div class="card" style="padding:0.85rem 1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;border:1px solid ${isDefault ? 'rgba(16,185,129,0.55)' : 'var(--border)'};">
+                  <div style="min-width:200px;flex:1;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                      <strong style="font-size:0.95rem;">${esc(id)}</strong>
+                      <span class="tier-badge">${esc(info.alias)}</span>
+                      <span class="muted" style="font-size:0.75rem;">${esc(size)}</span>
+                      ${isDefault ? '<span class="badge ok">Modelo Padrão Ativo</span>' : ''}
+                    </div>
+                    <p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem;">${esc(info.role)} · Motor: ${esc(info.engine)}</p>
+                  </div>
+                  <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
+                    ${ollamaAccount && !isDefault ? `<button type="button" class="ghost sm" data-set-ollama-default="${esc(id)}">Usar como Padrão</button>` : ''}
+                    <a href="#/playground" class="ghost sm" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.35rem 0.65rem;border-radius:var(--radius-sm);border:1px solid var(--border);font-size:0.78rem;" data-goto-playground="${esc(id)}">Testar no Playground</a>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
+            <div class="provider-dialog-actions" style="justify-content:space-between;">
+              <a href="#/models" id="ollama-goto-models" class="ghost" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.45rem 0.85rem;border-radius:var(--radius-sm);border:1px solid var(--border);">Ver página completa de Modelos</a>
+              <button type="button" id="ollama-models-done">Fechar</button>
+            </div>
+          </div>`;
+          const closeOllamaModal = () => { ollamaDialog.close(); openOllamaBtn.focus(); };
+          $('#ollama-models-close').onclick = closeOllamaModal;
+          $('#ollama-models-done').onclick = closeOllamaModal;
+          $('#ollama-goto-models').onclick = () => ollamaDialog.close();
+          ollamaDialog.querySelectorAll('[data-goto-playground]').forEach(link => {
+            link.onclick = () => ollamaDialog.close();
+          });
+          ollamaDialog.querySelectorAll('[data-set-ollama-default]').forEach(btn => {
+            btn.onclick = async () => {
+              const modelId = btn.dataset.setOllamaDefault;
+              btn.disabled = true;
+              btn.textContent = 'Ativando...';
+              try {
+                const res = await api(accountPath(ollamaAccount.id), {
+                  method: 'PATCH',
+                  body: {
+                    providerName: 'ollama',
+                    displayName: ollamaAccount.displayName || 'Ollama',
+                    authMode: 'local',
+                    enabled: ollamaAccount.enabled,
+                    baseUrl: ollamaAccount.baseUrl || '',
+                    settings: { defaultModel: modelId, accountTier: ollamaAccount.accountTier || 'dedicated' },
+                  },
+                });
+                if (res.account) {
+                  const idx = accounts.findIndex(a => a.id === ollamaAccount.id);
+                  if (idx >= 0) accounts[idx] = { ...res.account, health: ollamaAccount.health };
+                  renderCards();
+                }
+                toast('Modelo padrão do Ollama atualizado para ' + modelId, 'success');
+                ollamaDialog.close();
+              } catch (err) {
+                btn.disabled = false;
+                btn.textContent = 'Usar como Padrão';
+                toast(err.message || 'Erro ao atualizar modelo padrão', 'error');
+              }
+            };
+          });
+          ollamaDialog.showModal();
+          $('#ollama-models-done').focus();
+          return;
+        }
         const pullBtn = event.target.closest('[data-pull-provider]');
         if (pullBtn && !pullBtn.disabled) {
           const providerName = pullBtn.dataset.pullProvider;
@@ -1513,14 +1607,14 @@
         return;
       }
       const liveRows = live.flatMap((p) =>
-        p.models.map((m) => [providerIdentity(p.name), esc(m.id), esc(m.name || ''), m.sizeBytes ? (m.sizeBytes / 1e9).toFixed(1) + ' GB' : '—']),
+        p.models.map((m) => { const roleMap = { 'qwen2.5-coder:1.5b': 'Claude Code Open · JEV (Código & Arquitetura)', 'llama3.2:1b': 'ChatGPT Open · Meta Llama 3.2 (Chat Geral)', 'gemma3:1b': 'Google Gemma 3 Open (Análise & Instruções)', 'deepseek-r1:1.5b': 'DeepSeek R1 Open (Raciocínio Lógico)', 'qwen2.5:3b': 'Qwen 2.5 3B (Orquestração DAG)', 'qwen3.5:0.8b': 'Laya System 1 (Decisão & Visão)', 'qwen2.5:0.5b': 'Fast Intent Router (Triagem Rápida)', 'all-minilm:latest': 'Embeddings Semânticos (RAG)', 'all-minilm': 'Embeddings Semânticos (RAG)' }; return [providerIdentity(p.name), `<strong>${esc(m.id)}</strong>`, esc(roleMap[m.id] || m.name || m.id), m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo']; }),
       );
       const costRows = configured.flatMap((p) =>
         p.models.map((m) => [providerIdentity(p.name), esc(m.modelId), esc(m.capability), '$' + m.costPer1kInput, '$' + m.costPer1kOutput]),
       );
       content().innerHTML = `
         <h1>Modelos</h1>
-        <div class="section"><h2>Detectados nos providers</h2>${table(['Provider', 'Modelo', 'Nome', 'Tamanho'], liveRows)}</div>
+        <div class="section"><h2>Modelos Open Source e Provedores Detectados (Ativos no Sistema)</h2>${table(['Provider', 'Modelo', 'Equivalência Open Source / Papel no Sistema', 'Tamanho'], liveRows)}</div>
         <div class="section">
           <h2>Custos configurados (por 1k tokens)</h2>
           ${table(['Provider', 'Modelo', 'Capacidade', 'Input', 'Output'], costRows)}
