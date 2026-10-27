@@ -2277,3 +2277,57 @@ pre, code { overflow-wrap: anywhere; }
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Programming Token Bridge (Pro / Plus / Ultra) */
+.provider-token-bridge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(79, 141, 247, 0.11) 0%, rgba(16, 185, 129, 0.08) 100%);
+  border: 1px solid rgba(79, 141, 247, 0.32);
+  min-width: 0;
+}
+.provider-token-bridge-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.provider-token-bridge-head strong {
+  font-size: 0.84rem;
+  color: var(--text-primary);
+}
+.provider-token-bridge-head small {
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+.provider-token-bridge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+.provider-tier-chip {
+  font-size: 0.74rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(79, 141, 247, 0.35);
+}
+.provider-pull-main-btn {
+  background: linear-gradient(135deg, #2563eb 0%, #059669 100%);
+  color: #ffffff;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.42rem 0.85rem;
+}
+.provider-pull-card-btn {
+  border-color: rgba(79, 141, 247, 0.42) !important;
+  color: #93c5fd !important;
+  font-weight: 600;
+}
+.provider-pull-card-btn:hover {
+  background: rgba(37, 99, 235, 0.16) !important;
+  color: #ffffff !important;
+}

@@ -11,6 +11,8 @@ export interface ProviderAccountBinding {
   healthCheckedAt: Date | null;
   healthLatencyMs?: number | null;
   authMode?: 'apiKey' | 'oauth' | 'local';
+  accountTier?: string;
+  defaultModel?: string;
 }
 
 export interface ProviderAccountTarget {

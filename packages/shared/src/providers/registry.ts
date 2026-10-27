@@ -386,7 +386,20 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.OPENAI_API_KEY) {
+  const createBridgedProvider = (providerName: string, defaultModel: string): AIProvider => {
+    const bridged = new OllamaProvider({
+      baseUrl: ollamaBaseUrl || 'http://127.0.0.1:11434',
+      defaultModel,
+      embedModel: env.OLLAMA_EMBED_MODEL || process.env.OLLAMA_EMBED_MODEL || 'all-minilm',
+      visionModel: env.OLLAMA_VISION_MODEL || process.env.OLLAMA_VISION_MODEL || 'qwen3.5:0.8b',
+    });
+    Object.defineProperty(bridged, 'name', { value: providerName, writable: false, enumerable: true });
+    return bridged;
+  };
+
+  if (env.OPENAI_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('openai', env.OPENAI_DEFAULT_MODEL || 'qwen2.5-coder:1.5b'));
+  } else if (env.OPENAI_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'openai',
@@ -400,7 +413,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN) {
+  if ((env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN)?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('gemini', env.GEMINI_DEFAULT_MODEL || 'gemma3:1b'));
+  } else if (env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN) {
     registry.register(
       new GeminiProvider({
         apiKey: env.GEMINI_API_KEY,
@@ -413,7 +428,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.ANTHROPIC_API_KEY) {
+  if (env.ANTHROPIC_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('anthropic', env.CLAUDE_DEFAULT_MODEL || 'qwen2.5-coder:1.5b'));
+  } else if (env.ANTHROPIC_API_KEY) {
     registry.register(
       new ClaudeProvider({
         apiKey: env.ANTHROPIC_API_KEY,
@@ -422,7 +439,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.OPENROUTER_API_KEY) {
+  if (env.OPENROUTER_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('openrouter', env.OPENROUTER_DEFAULT_MODEL || 'qwen2.5:3b'));
+  } else if (env.OPENROUTER_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'openrouter',
@@ -448,7 +467,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.HUGGINGFACE_API_KEY) {
+  if (env.HUGGINGFACE_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('huggingface', env.HUGGINGFACE_DEFAULT_MODEL || 'qwen2.5-coder:1.5b'));
+  } else if (env.HUGGINGFACE_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'huggingface',
@@ -460,7 +481,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.GROQ_API_KEY) {
+  if (env.GROQ_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('groq', env.GROQ_DEFAULT_MODEL || 'llama3.2:1b'));
+  } else if (env.GROQ_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'groq',
@@ -472,7 +495,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.GROK_API_KEY) {
+  if (env.GROK_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('xai', env.GROK_DEFAULT_MODEL || 'deepseek-r1:1.5b'));
+  } else if (env.GROK_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'xai',
@@ -484,7 +509,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) {
+  if (env.CLOUDFLARE_API_TOKEN?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('cloudflare', env.CLOUDFLARE_DEFAULT_MODEL || 'llama3.2:1b'));
+  } else if (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'cloudflare',

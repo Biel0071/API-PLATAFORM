@@ -155,6 +155,30 @@ test.beforeEach(async ({ page }) => {
       accounts.push(created);
       return route.fulfill({ status: 201, json: { success: true, account: created } });
     }
+    if (pathname === '/admin/provider-accounts/pull-tokens' && method === 'POST') {
+      const created = {
+        ...makeAccount('pulled-' + accounts.length, body.providerName, body.displayName || `${body.providerName} (${(body.accountTier || 'pro').toUpperCase()})`),
+        accountTier: body.accountTier || 'pro',
+        defaultModel: body.defaultModel || 'gpt-4o',
+        hasCredential: true,
+        health: { ok: true, checkedAt: new Date().toISOString(), latencyMs: 18 },
+      };
+      accounts.push(created);
+      return route.fulfill({
+        status: 201,
+        json: {
+          success: true,
+          account: created,
+          health: created.health,
+          tokenBridge: {
+            providerName: body.providerName,
+            tier: created.accountTier,
+            defaultModel: created.defaultModel,
+            active: true,
+          },
+        },
+      });
+    }
     const match = pathname.match(/^\/admin\/provider-accounts\/([^/]+)(.*)$/);
     if (match) {
       const selected = accounts.find((item) => item.id === match[1]);
@@ -774,4 +798,23 @@ test('keeps a newer health failure when an older global refresh arrives afterwar
   await finishRefresh();
   await expect(page.getByRole('dialog')).toBeHidden();
   await expect(card.locator('.provider-status')).not.toContainText('Online');
+});
+
+test('pulls Pro/Plus programming tokens from catalog and dialog and connects online', async ({
+  page,
+}) => {
+  await page.locator('[data-pull-provider="openai"]').click();
+  const pulledCard = page.locator('[data-provider-account="pulled-3"]');
+  await expect(pulledCard).toBeVisible();
+  await expect(pulledCard.locator('.provider-status')).toContainText('Online');
+  await expect(pulledCard.locator('.tier-badge')).toContainText('PRO');
+
+  await page.locator('[data-connect-provider="anthropic"]').click();
+  await page.locator('[data-tier-preset="plus"]').click();
+  await page.locator('#p-pull-tokens-btn').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  const anthropicCard = page.locator('[data-provider-account="pulled-4"]');
+  await expect(anthropicCard).toBeVisible();
+  await expect(anthropicCard.locator('.provider-status')).toContainText('Online');
+  await expect(anthropicCard.locator('.tier-badge')).toContainText('PLUS');
 });

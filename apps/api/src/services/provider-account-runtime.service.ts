@@ -122,6 +122,8 @@ export async function loadProviderAccountRuntime(
       healthCheckedAt: account.healthCheckedAt,
       healthLatencyMs: account.healthLatencyMs,
       authMode: account.authMode,
+      accountTier: typeof (account.settings as any)?.accountTier === 'string' ? (account.settings as any).accountTier : undefined,
+      defaultModel: typeof (account.settings as any)?.defaultModel === 'string' ? (account.settings as any).defaultModel : undefined,
     });
   }
 

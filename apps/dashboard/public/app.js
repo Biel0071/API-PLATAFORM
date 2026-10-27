@@ -842,6 +842,17 @@
         },
       };
       const providerTitle = (name) => details[name]?.title || name;
+      const programmingBridgeProfiles = {
+        openai: { label: 'OpenAI Codex · Tokens de Programação', defaultTier: 'pro', defaultModel: 'gpt-4o', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
+        anthropic: { label: 'Anthropic Claude Code · Tokens de Programação', defaultTier: 'pro', defaultModel: 'claude-3-5-sonnet-20241022', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
+        gemini: { label: 'Google Gemini Antigravity · Tokens de Programação', defaultTier: 'ultra', defaultModel: 'gemini-1.5-pro', quotaLabel: 'Pro (25M) · Ultra (100M)' },
+        xai: { label: 'xAI Grok · Tokens de Programação', defaultTier: 'pro', defaultModel: 'grok-beta', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
+        groq: { label: 'Groq LPU · Tokens de Programação', defaultTier: 'pro', defaultModel: 'llama-3.3-70b-versatile', quotaLabel: 'Plus (5M) · Pro (25M)' },
+        openrouter: { label: 'OpenRouter Multi-System · Tokens de Programação', defaultTier: 'pro', defaultModel: 'anthropic/claude-3.5-sonnet', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
+        huggingface: { label: 'Hugging Face Inference · Tokens de Programação', defaultTier: 'pro', defaultModel: 'meta-llama/Llama-3.2-3B-Instruct', quotaLabel: 'Pro (25M)' },
+        cloudflare: { label: 'Cloudflare Workers AI · Tokens de Programação', defaultTier: 'pro', defaultModel: '@cf/meta/llama-3.1-8b-instruct', quotaLabel: 'Pro (25M)' },
+        ollama: { label: 'Ollama Dedicated GPU · Motor Local 24/7', defaultTier: 'dedicated', defaultModel: 'qwen2.5-coder:1.5b', quotaLabel: 'Ilimitado 24/7' },
+      };
       const logo = (name) => `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${name}.svg" width="28" height="28" alt="" /></span>`;
       const svgExternal = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 
@@ -961,7 +972,7 @@
             (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + '</p>' : '') +
             '<div class="provider-card-model-tags" aria-label="Modelos disponíveis ou sugeridos">' + displayModels.slice(0, 3).map(model => '<span class="model-tag" title="' + esc(model) + '">' + esc(model) + '</span>').join('') + '</div>' +
             (account ? '<div class="provider-usage-panel" data-account-usage="' + esc(account.id) + '" aria-label="Uso estimado da conta">' + renderUsage(account) + '</div>' : '') +
-            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>') +
+            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button><button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>') +
             (portalUrl ? '<a href="' + esc(portalUrl) + '" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">' + svgExternal + ' Acessar Portal</a>' : '') + '</div>' +
             (account ? '<p class="provider-test-result ' + esc(result?.kind || '') + '" data-account-result="' + esc(account.id) + '" role="status">' + esc(result?.message || '') + '</p>' : '') + '</article>';
         };
@@ -987,7 +998,11 @@
         const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-auth-mode').value = mode;
         $('#p-key-field').hidden = !cloud || mode !== 'apiKey';
-        $('#p-key').required = cloud && mode === 'apiKey' && !hasApiKey;
+        const autoPullTier = !selectedAccount && ['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier')?.value || 'free');
+        $('#p-key').required = cloud && mode === 'apiKey' && !hasApiKey && !autoPullTier;
+        if (cloud && mode === 'apiKey' && !hasApiKey) {
+          $('#p-key').placeholder = autoPullTier ? 'Opcional: deixe vazio para puxar tokens ' + ($('#p-tier')?.value || 'pro').toUpperCase() + ' automaticamente' : 'Cole sua API key ou token';
+        }
         $('#p-account-field').hidden = name !== 'cloudflare';
         $('#p-account').required = name === 'cloudflare' && mode === 'apiKey' && !selectedAccount;
         $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
@@ -1026,6 +1041,10 @@
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
 
         $('#p-tier').value = cfg?.settings?.accountTier || 'free';
+        const bridgeProfile = programmingBridgeProfiles[name] || { label: providerTitle(name) + ' · Tokens de Programação', defaultTier: 'pro', defaultModel: defaultPortals[name]?.models?.[0] || '', quotaLabel: 'Plus · Pro · Ultra' };
+        if ($('#p-bridge-desc')) {
+          $('#p-bridge-desc').textContent = bridgeProfile.label + ' (' + bridgeProfile.quotaLabel + ')';
+        }
         const suggestedModels = (live?.models || []).map(m => typeof m === 'string' ? m : m.id || m.name).filter(Boolean);
         const fallbackModels = defaultPortals[name]?.models || [];
         const modelList = suggestedModels.length > 0 ? suggestedModels : fallbackModels;
@@ -1091,6 +1110,18 @@
                 <option value="free">Free / Gratuito</option>
               </select>
             </label>
+            <div class="provider-field-wide provider-token-bridge" id="p-token-bridge">
+              <div class="provider-token-bridge-head">
+                <strong>⚡ Puxar Tokens de Programação (Conta Pro / Plus / Ultra)</strong>
+                <small id="p-bridge-desc" class="muted">Sincroniza tokens de programação de acordo com o sistema e ativa na orquestração</small>
+              </div>
+              <div class="provider-token-bridge-actions">
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="plus">Plus · 5M</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="pro">Pro · 25M</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="ultra">Ultra · 100M</button>
+                <button type="button" id="p-pull-tokens-btn" class="provider-pull-main-btn">⚡ Puxar Tokens Pro / Plus & Conectar</button>
+              </div>
+            </div>
             <label class="provider-field-wide" for="p-key" id="p-key-field">API Key / Token<input id="p-key" type="password" autocomplete="new-password" /></label>
             <label class="provider-field-wide" for="p-url">Endpoint / Base URL<input id="p-url" type="url" /></label>
             <label class="provider-field-wide" for="p-account" id="p-account-field">Account ID (Cloudflare)<input id="p-account" /></label>
@@ -1107,6 +1138,25 @@
         fillProvider(name);
         $('#p-dialog-title').textContent = selectedAccount ? 'Editar conta' : 'Conectar conta';
         $('#p-name').onchange = event => fillProvider(event.target.value);
+        $('#p-tier').onchange = () => {
+          const currentName = $('#p-name').value;
+          const profile = programmingBridgeProfiles[currentName];
+          if (['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier').value) && !$('#p-model').value.trim() && profile?.defaultModel) {
+            $('#p-model').value = profile.defaultModel;
+          }
+          updateAuthFields();
+        };
+        dialog.querySelectorAll('[data-tier-preset]').forEach(btn => {
+          btn.onclick = () => {
+            const currentName = $('#p-name').value;
+            const profile = programmingBridgeProfiles[currentName];
+            $('#p-tier').value = btn.dataset.tierPreset;
+            if (!$('#p-model').value.trim() && profile?.defaultModel) {
+              $('#p-model').value = profile.defaultModel;
+            }
+            updateAuthFields();
+          };
+        });
         $('#p-auth-methods').onchange = event => {
           if (!event.target.matches('input[name="provider-auth-mode"]')) return;
           if (event.target.value !== 'oauth') stopOAuthPolling();
@@ -1136,14 +1186,31 @@
           const body = { providerName, displayName: $('#p-display-name').value.trim(), authMode, enabled: $('#p-enabled').checked, baseUrl: $('#p-url').value.trim() };
           if (settingsChanged) body.settings = settings;
           if (authMode === 'apiKey' && $('#p-key').value.trim()) body.apiKey = $('#p-key').value.trim();
-          const response = await api(selectedAccount ? accountPath(selectedAccount.id) : '/admin/provider-accounts', { method: selectedAccount ? 'PATCH' : 'POST', body });
+          const shouldPullTokens = !selectedAccount && ['plus', 'pro', 'ultra', 'enterprise'].includes(settings.accountTier) && !$('#p-key').value.trim();
+          const response = shouldPullTokens
+            ? await api('/admin/provider-accounts/pull-tokens', {
+                method: 'POST',
+                body: {
+                  providerName,
+                  displayName: $('#p-display-name').value.trim() || `${providerTitle(providerName)} (${settings.accountTier.toUpperCase()})`,
+                  accountTier: settings.accountTier,
+                  defaultModel: settings.defaultModel || undefined,
+                  baseUrl: $('#p-url').value.trim() || undefined,
+                  cloudflareAccountId: accountId || undefined,
+                },
+              })
+            : await api(selectedAccount ? accountPath(selectedAccount.id) : '/admin/provider-accounts', { method: selectedAccount ? 'PATCH' : 'POST', body });
           if (isViewStale(providerView)) return null;
           if (!response.account?.id) throw new Error('A API não confirmou a conta salva.');
           accountRefreshGeneration++;
           selectedAccount = response.account;
           const index = accounts.findIndex(item => item.id === selectedAccount.id);
           if (index < 0) accounts.push(selectedAccount); else accounts[index] = selectedAccount;
-          testResults.delete(selectedAccount.id);
+          if (response.tokenBridge && response.health?.ok) {
+            testResults.set(selectedAccount.id, { kind: 'ok', message: 'Tokens de programação ' + (response.tokenBridge.tier || 'pro').toUpperCase() + ' conectados e ativos · ' + (response.tokenBridge.defaultModel || '') });
+          } else {
+            testResults.delete(selectedAccount.id);
+          }
           $('#p-key').value = '';
           $('#p-name').disabled = true;
           renderCards();
@@ -1246,6 +1313,62 @@
             if (!isViewStale(providerView) && dialog.open) setBusy(false);
           }
         };
+        $('#p-pull-tokens-btn').onclick = async () => {
+          if (saving) return;
+          stopOAuthPolling();
+          const providerName = $('#p-name').value;
+          const profile = programmingBridgeProfiles[providerName] || { defaultTier: 'pro', defaultModel: '' };
+          if (!['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier').value)) {
+            $('#p-tier').value = profile.defaultTier || 'pro';
+          }
+          if (!$('#p-model').value.trim() && profile.defaultModel) {
+            $('#p-model').value = profile.defaultModel;
+          }
+          updateAuthFields();
+          const result = $('#p-result');
+          result.textContent = 'Puxando tokens de programação ' + $('#p-tier').value.toUpperCase() + ' e conectando ao sistema...';
+          result.className = 'muted';
+          setBusy(true);
+          try {
+            const response = await api('/admin/provider-accounts/pull-tokens', {
+              method: 'POST',
+              body: {
+                accountId: selectedAccount?.id,
+                providerName,
+                displayName: $('#p-display-name').value.trim() || `${providerTitle(providerName)} (${$('#p-tier').value.toUpperCase()})`,
+                accountTier: $('#p-tier').value,
+                defaultModel: $('#p-model').value.trim() || profile.defaultModel || undefined,
+                apiKey: $('#p-key').value.trim() || undefined,
+                baseUrl: $('#p-url').value.trim() || undefined,
+                cloudflareAccountId: $('#p-account').value.trim() || undefined,
+              },
+            });
+            if (isViewStale(providerView)) return;
+            if (!response.account?.id) throw new Error('A API não confirmou a sincronização dos tokens.');
+            accountRefreshGeneration++;
+            selectedAccount = response.account;
+            const index = accounts.findIndex(item => item.id === selectedAccount.id);
+            if (index < 0) accounts.push(selectedAccount); else accounts[index] = selectedAccount;
+            if (response.health) applyAccountHealth(selectedAccount.id, response.health);
+            testResults.set(selectedAccount.id, {
+              kind: response.health?.ok ? 'ok' : 'muted',
+              message: 'Tokens de programação ' + ($('#p-tier').value || 'pro').toUpperCase() + ' conectados e em uso · ' + (response.tokenBridge?.defaultModel || selectedAccount.defaultModel || ''),
+            });
+            await saveProviderSettings();
+            if (isViewStale(providerView)) return;
+            renderCards();
+            loadUsage(selectedAccount);
+            saving = false;
+            dialog.close();
+            [...content().querySelectorAll('[data-edit-account]')].find(el => el.dataset.editAccount === selectedAccount.id)?.focus();
+            toast('Tokens de programação ' + providerTitle(providerName) + ' (' + ($('#p-tier').value || 'pro').toUpperCase() + ') puxados e ativos!', 'success');
+          } catch (err) {
+            if (!isViewStale(providerView) && dialog.open) { result.textContent = err.message; result.className = 'error'; }
+          } finally {
+            saving = false;
+            if (!isViewStale(providerView) && dialog.open) setBusy(false);
+          }
+        };
         $('#p-form').onsubmit = async event => {
           event.preventDefault();
           if (saving) return;
@@ -1275,6 +1398,47 @@
       content().querySelector('.providers-page').addEventListener('click', async event => {
         const connect = event.target.closest('[data-connect-provider]');
         if (connect) { openProvider(connect.dataset.connectProvider, connect); return; }
+        const pullBtn = event.target.closest('[data-pull-provider]');
+        if (pullBtn && !pullBtn.disabled) {
+          const providerName = pullBtn.dataset.pullProvider;
+          const profile = programmingBridgeProfiles[providerName] || { defaultTier: 'pro', defaultModel: '' };
+          pullBtn.disabled = true;
+          const originalText = pullBtn.textContent;
+          pullBtn.textContent = 'Puxando tokens...';
+          try {
+            const response = await api('/admin/provider-accounts/pull-tokens', {
+              method: 'POST',
+              body: {
+                providerName,
+                displayName: `${providerTitle(providerName)} (${(profile.defaultTier || 'pro').toUpperCase()})`,
+                accountTier: profile.defaultTier || 'pro',
+                defaultModel: profile.defaultModel || undefined,
+              },
+            });
+            if (isViewStale(providerView)) return;
+            if (!response.account?.id) throw new Error('A API não confirmou a sincronização dos tokens.');
+            accountRefreshGeneration++;
+            const synced = response.account;
+            const index = accounts.findIndex(item => item.id === synced.id);
+            if (index < 0) accounts.push(synced); else accounts[index] = synced;
+            if (response.health) applyAccountHealth(synced.id, response.health);
+            testResults.set(synced.id, {
+              kind: response.health?.ok ? 'ok' : 'muted',
+              message: 'Tokens de programação ' + (profile.defaultTier || 'pro').toUpperCase() + ' conectados e em uso · ' + (response.tokenBridge?.defaultModel || synced.defaultModel || ''),
+            });
+            renderCards();
+            loadUsage(synced);
+            [...content().querySelectorAll('[data-edit-account]')].find(el => el.dataset.editAccount === synced.id)?.focus();
+            toast('Tokens de programação ' + providerTitle(providerName) + ' (' + (profile.defaultTier || 'pro').toUpperCase() + ') conectados e ativos!', 'success');
+          } catch (err) {
+            if (!isViewStale(providerView)) {
+              pullBtn.disabled = false;
+              pullBtn.textContent = originalText;
+              toast(err.message || 'Falha ao puxar tokens de programação.', 'error');
+            }
+          }
+          return;
+        }
         const edit = event.target.closest('[data-edit-account]');
         if (edit) {
           const account = accounts.find(item => item.id === edit.dataset.editAccount);

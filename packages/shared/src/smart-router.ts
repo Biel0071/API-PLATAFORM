@@ -415,6 +415,13 @@ export class SmartModelRouter {
           });
 
           let finalScore = specificModel && specificModel.id === m.id ? accScore + 30 : accScore;
+          if (accHealthy) {
+            const tier = String(acc.accountTier || '').toLowerCase();
+            if (tier === 'ultra' || tier === 'enterprise') finalScore += 28;
+            else if (tier === 'pro') finalScore += 22;
+            else if (tier === 'plus' || tier === 'tier1') finalScore += 18;
+            else finalScore += 12;
+          }
           if (options.preferredProvider === m.provider) finalScore += 25;
 
           scoredCandidates.push({

@@ -105,16 +105,17 @@ export class OllamaProvider extends BaseProvider {
   }
 
   private requireModel(model?: string, fallback?: string): string {
-    const rawLower = model ? model.toLowerCase().trim() : '';
-    let mappedRaw = model && rawLower !== 'auto' ? model : undefined;
+    const candidate = (model && model.toLowerCase().trim() !== 'auto' ? model : undefined) ?? fallback ?? this.config.defaultModel ?? 'qwen2.5:3b';
+    const rawLower = candidate ? candidate.toLowerCase().trim() : '';
+    let mappedRaw = candidate;
     if (mappedRaw) {
-      if (['gemma', 'gemma-open', 'gemma3', 'gemma-3', 'google-open', 'qwen2.5:1.5b'].includes(rawLower) || rawLower.startsWith('gemini-')) {
+      if (['gemma', 'gemma-open', 'gemma3', 'gemma-3', 'google-open', 'qwen2.5:1.5b'].includes(rawLower) || rawLower.includes('gemini')) {
         mappedRaw = 'gemma3:1b';
-      } else if (['claude-open', 'sonnet-open', 'jev', 'jev-open', 'jev-coder', 'coder-open', 'qwen-coder', 'deepseek-coder:6.7b', 'coding'].includes(rawLower) || rawLower.startsWith('claude-')) {
+      } else if (['claude-open', 'sonnet-open', 'jev', 'jev-open', 'jev-coder', 'coder-open', 'qwen-coder', 'deepseek-coder:6.7b', 'coding'].includes(rawLower) || rawLower.includes('claude')) {
         mappedRaw = 'qwen2.5-coder:1.5b';
-      } else if (['chatgpt-open', 'gpt-open', 'openai-open', 'llama', 'llama-open', 'llama3.2'].includes(rawLower) || rawLower.startsWith('gpt-')) {
+      } else if (['chatgpt-open', 'gpt-open', 'openai-open', 'llama', 'llama-open', 'llama3.2'].includes(rawLower) || rawLower.includes('gpt-') || rawLower.includes('llama-3') || rawLower.includes('mixtral')) {
         mappedRaw = 'llama3.2:1b';
-      } else if (['r1-open', 'deepseek-open', 'reasoning-open', 'deepseek-r1:latest', 'reasoning'].includes(rawLower)) {
+      } else if (['r1-open', 'deepseek-open', 'reasoning-open', 'deepseek-r1:latest', 'reasoning'].includes(rawLower) || rawLower.includes('grok') || rawLower.startsWith('o1-') || rawLower.startsWith('o3-')) {
         mappedRaw = 'deepseek-r1:1.5b';
       } else if (['vision-open', 'qwen-vision', 'moondream', 'vision'].includes(rawLower)) {
         mappedRaw = 'qwen3.5:0.8b';
