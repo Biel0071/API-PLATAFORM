@@ -57,6 +57,12 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       expect(ModelCapabilityRegistry.resolvePoolFromAlias('decide')).toBe('DECISION');
       expect(ModelCapabilityRegistry.resolvePoolFromAlias('laya')).toBe('DECISION');
       expect(ModelCapabilityRegistry.resolvePoolFromAlias('jev')).toBe('DECISION');
+      expect(ModelCapabilityRegistry.resolveModelAlias('gemma')).toBe('gemma3:1b');
+      expect(ModelCapabilityRegistry.resolveModelAlias('claude-open')).toBe('qwen2.5-coder:1.5b');
+      expect(ModelCapabilityRegistry.resolveModelAlias('jev-coder')).toBe('qwen2.5-coder:1.5b');
+      expect(ModelCapabilityRegistry.resolveModelAlias('chatgpt-open')).toBe('llama3.2:1b');
+      expect(ModelCapabilityRegistry.resolveModelAlias('r1-open')).toBe('deepseek-r1:1.5b');
+      expect(ModelCapabilityRegistry.resolveModelAlias('vision-open')).toBe('qwen3.5:0.8b');
     });
   });
 

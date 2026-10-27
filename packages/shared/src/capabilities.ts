@@ -97,7 +97,7 @@ export const MODEL_CAPABILITY_CATALOG: ModelCapabilityInfo[] = [
     contextWindow: 2048,
     latencyTier: 'high',
     pricingTier: 'free',
-    status: 'untested', // Reprovado em produção por timeout alto em CPU; marcado como não validado
+    status: 'available', // Validado na VPS com modelo DeepSeek-R1 1.5B ativo no Ollama
     description: 'Modelo de raciocínio local (sujeito a latência alta em CPU).',
   },
   {
@@ -122,13 +122,68 @@ export const MODEL_CAPABILITY_CATALOG: ModelCapabilityInfo[] = [
     status: 'available',
     description: 'Modelo local dedicado para geração de embeddings semânticos.',
   },
+  {
+    id: 'all-minilm',
+    provider: 'ollama',
+    pools: ['EMBEDDING'],
+    capabilities: ['embeddings'],
+    contextWindow: 2048,
+    latencyTier: 'instant',
+    pricingTier: 'free',
+    status: 'available',
+    description: 'All-MiniLM-L6-v2 Open-Source ultrarrápido para embeddings de 384 dimensões.',
+  },
+  {
+    id: 'gemma3:1b',
+    provider: 'ollama',
+    pools: ['FAST', 'GENERAL'],
+    capabilities: ['chat', 'fast_response', 'json', 'classification', 'extraction', 'reasoning'],
+    contextWindow: 32768,
+    latencyTier: 'low',
+    pricingTier: 'free',
+    status: 'available',
+    description: 'Google Gemma 3 1B Instruct Open-Source — modelo oficial leve do Google para respostas ágeis e estruturadas.',
+  },
+  {
+    id: 'qwen2.5-coder:1.5b',
+    provider: 'ollama',
+    pools: ['CODING', 'GENERAL', 'FAST'],
+    capabilities: ['chat', 'coding', 'json', 'extraction', 'fast_response'],
+    contextWindow: 32768,
+    latencyTier: 'low',
+    pricingTier: 'free',
+    status: 'available',
+    description: 'Qwen 2.5 Coder 1.5B Open-Source — especialista em engenharia de software e programação (equivalente open-source Claude/JEV Coder).',
+  },
+  {
+    id: 'llama3.2:1b',
+    provider: 'ollama',
+    pools: ['FAST', 'GENERAL'],
+    capabilities: ['chat', 'fast_response', 'json', 'tool_use', 'classification', 'reasoning'],
+    contextWindow: 131072,
+    latencyTier: 'low',
+    pricingTier: 'free',
+    status: 'available',
+    description: 'Meta Llama 3.2 1B Instruct Open-Source — conversação geral, instruções e tool use (equivalente open-source ChatGPT).',
+  },
+  {
+    id: 'qwen3.5:0.8b',
+    provider: 'ollama',
+    pools: ['FAST', 'VISION', 'REASONING'],
+    capabilities: ['chat', 'vision', 'reasoning', 'tool_use', 'fast_response', 'json'],
+    contextWindow: 32768,
+    latencyTier: 'low',
+    pricingTier: 'free',
+    status: 'available',
+    description: 'Qwen 3.5 0.8B Open-Source multimodal (Visão, Tool Use e Thinking).',
+  },
 
   // --- FREE-TIER & EXTERNAL PROVIDERS ---
   {
     id: 'llama-3.1-8b-instant',
     provider: 'groq',
     pools: ['FAST', 'GENERAL'],
-    capabilities: ['chat', 'fast_response', 'json', 'tool_use', 'classification'],
+    capabilities: ['chat', 'fast_response', 'json', 'tool_use', 'classification', 'reasoning'],
     contextWindow: 131072,
     latencyTier: 'instant',
     pricingTier: 'free',
@@ -303,7 +358,57 @@ export class ModelCapabilityRegistry {
   }
 
   /** Retorna a definição do modelo por ID ou provider:id */
+  /** Resolve aliases open-source (gemma, claude-open, chatgpt-open, jev-coder, etc.) para o modelo canônico */
+  public static resolveModelAlias(alias?: string): string | undefined {
+    if (!alias) return undefined;
+    const lower = alias.toLowerCase().trim();
+    switch (lower) {
+      case 'gemma':
+      case 'gemma-open':
+      case 'gemma3':
+      case 'gemma-3':
+      case 'google-open':
+        return 'gemma3:1b';
+      case 'claude-open':
+      case 'sonnet-open':
+      case 'jev-open':
+      case 'jev-coder':
+      case 'coder-open':
+      case 'qwen-coder':
+        return 'qwen2.5-coder:1.5b';
+      case 'chatgpt-open':
+      case 'gpt-open':
+      case 'openai-open':
+      case 'llama':
+      case 'llama-open':
+      case 'llama3.2':
+        return 'llama3.2:1b';
+      case 'r1-open':
+      case 'deepseek-open':
+      case 'reasoning-open':
+        return 'deepseek-r1:1.5b';
+      case 'vision-open':
+      case 'qwen-vision':
+        return 'qwen3.5:0.8b';
+      default:
+        return undefined;
+    }
+  }
+
+  /** Retorna a definição do modelo por ID ou provider:id */
   public static getModel(idOrKey: string): ModelCapabilityInfo | undefined {
+    if (this.catalog.has(idOrKey)) {
+      return this.catalog.get(idOrKey);
+    }
+    const resolvedAlias = this.resolveModelAlias(idOrKey);
+    const lookupId = resolvedAlias || idOrKey;
+    for (const info of this.catalog.values()) {
+      if (info.id === lookupId) return info;
+    }
+    return undefined;
+  }
+
+  private static _legacyGetModelUnused(idOrKey: string): ModelCapabilityInfo | undefined {
     if (this.catalog.has(idOrKey)) {
       return this.catalog.get(idOrKey);
     }
@@ -346,6 +451,12 @@ export class ModelCapabilityRegistry {
       case 'code':
       case 'coder':
       case 'programacao':
+      case 'claude-open':
+      case 'sonnet-open':
+      case 'jev-open':
+      case 'jev-coder':
+      case 'coder-open':
+      case 'qwen-coder':
         return 'CODING';
       case 'reasoning':
       case 'reason':
@@ -367,6 +478,15 @@ export class ModelCapabilityRegistry {
         return 'POWER';
       case 'general':
       case 'chat':
+      case 'chatgpt-open':
+      case 'gpt-open':
+      case 'openai-open':
+      case 'llama':
+      case 'llama-open':
+      case 'llama3.2':
+      case 'gemma':
+      case 'gemma-open':
+      case 'gemma3':
         return 'GENERAL';
       case 'decision':
       case 'decide':

@@ -105,7 +105,24 @@ export class OllamaProvider extends BaseProvider {
   }
 
   private requireModel(model?: string, fallback?: string): string {
-    const raw = model && model.toLowerCase() !== 'auto' ? model : undefined;
+    const rawLower = model ? model.toLowerCase().trim() : '';
+    let mappedRaw = model && rawLower !== 'auto' ? model : undefined;
+    if (mappedRaw) {
+      if (['gemma', 'gemma-open', 'gemma3', 'gemma-3', 'google-open', 'qwen2.5:1.5b'].includes(rawLower) || rawLower.startsWith('gemini-')) {
+        mappedRaw = 'gemma3:1b';
+      } else if (['claude-open', 'sonnet-open', 'jev', 'jev-open', 'jev-coder', 'coder-open', 'qwen-coder', 'deepseek-coder:6.7b', 'coding'].includes(rawLower) || rawLower.startsWith('claude-')) {
+        mappedRaw = 'qwen2.5-coder:1.5b';
+      } else if (['chatgpt-open', 'gpt-open', 'openai-open', 'llama', 'llama-open', 'llama3.2'].includes(rawLower) || rawLower.startsWith('gpt-')) {
+        mappedRaw = 'llama3.2:1b';
+      } else if (['r1-open', 'deepseek-open', 'reasoning-open', 'deepseek-r1:latest', 'reasoning'].includes(rawLower)) {
+        mappedRaw = 'deepseek-r1:1.5b';
+      } else if (['vision-open', 'qwen-vision', 'moondream', 'vision'].includes(rawLower)) {
+        mappedRaw = 'qwen3.5:0.8b';
+      } else if (rawLower === 'nomic-embed-text') {
+        mappedRaw = this.config.embedModel || 'all-minilm';
+      }
+    }
+    const raw = mappedRaw;
     const resolved = raw ?? fallback ?? this.config.defaultModel ?? 'qwen2.5:3b';
     if (!resolved) throw new ProviderError(this.name, 'no model configured', 'MODEL_REQUIRED', 400);
     return resolved;
@@ -188,7 +205,7 @@ export class OllamaProvider extends BaseProvider {
           model,
           messages,
           stream: false,
-          tools: input.tools,
+          tools: Array.isArray(input.tools) && input.tools.length > 0 ? input.tools : undefined,
           keep_alive: this.keepAlive,
           options: { temperature: input.temperature, num_predict: input.maxTokens },
         },
@@ -196,14 +213,26 @@ export class OllamaProvider extends BaseProvider {
       });
     } catch (err: any) {
       const fallbackLocal = this.config.defaultModel || 'qwen2.5:3b';
-      if ((err?.status === 404 || err?.statusCode === 404) && model !== fallbackLocal) {
+      if ((err?.status === 400 || err?.statusCode === 400) && Array.isArray(input.tools) && input.tools.length > 0) {
+        data = await this.http<any>(this.url('/api/chat'), {
+          method: 'POST',
+          body: {
+            model,
+            messages,
+            stream: false,
+            keep_alive: this.keepAlive,
+            options: { temperature: input.temperature, num_predict: input.maxTokens },
+          },
+          timeoutMs: this.config.timeoutMs ?? 90_000,
+        });
+      } else if ((err?.status === 404 || err?.statusCode === 404) && model !== fallbackLocal) {
         data = await this.http<any>(this.url('/api/chat'), {
           method: 'POST',
           body: {
             model: fallbackLocal,
             messages,
             stream: false,
-            tools: input.tools,
+            tools: Array.isArray(input.tools) && input.tools.length > 0 ? input.tools : undefined,
             keep_alive: this.keepAlive,
             options: { temperature: input.temperature, num_predict: input.maxTokens },
           },
@@ -251,7 +280,7 @@ export class OllamaProvider extends BaseProvider {
           model,
           messages,
           stream: true,
-          tools: input.tools,
+          tools: Array.isArray(input.tools) && input.tools.length > 0 ? input.tools : undefined,
           keep_alive: this.keepAlive,
           options: { temperature: input.temperature, num_predict: input.maxTokens },
         }),

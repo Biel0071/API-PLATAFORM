@@ -314,6 +314,84 @@ export const MODEL_REGISTRY: IModel[] = [
     pricePer1kTokens: { prompt: 0.001, completion: 0.002 },
     latencyTier: 'medium',
     status: 'active'
+  },
+  {
+    id: 'gemma3:1b',
+    provider: 'ollama',
+    capability: 'CHAT',
+    contextWindow: 32768,
+    streaming: true,
+    vision: false,
+    audio: false,
+    functionCalling: false,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'qwen2.5-coder:1.5b',
+    provider: 'ollama',
+    capability: 'CODE',
+    contextWindow: 32768,
+    streaming: true,
+    vision: false,
+    audio: false,
+    functionCalling: true,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'llama3.2:1b',
+    provider: 'ollama',
+    capability: 'CHAT',
+    contextWindow: 131072,
+    streaming: true,
+    vision: false,
+    audio: false,
+    functionCalling: true,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'qwen3.5:0.8b',
+    provider: 'ollama',
+    capability: 'VISION',
+    contextWindow: 32768,
+    streaming: true,
+    vision: true,
+    audio: false,
+    functionCalling: true,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'all-minilm',
+    provider: 'ollama',
+    capability: 'EMBEDDING',
+    contextWindow: 2048,
+    streaming: false,
+    vision: false,
+    audio: false,
+    functionCalling: false,
+    pricePer1kTokens: { prompt: 0, completion: 0 },
+    latencyTier: 'low',
+    status: 'active'
+  },
+  {
+    id: 'moonshot-v1-8k-legacy',
+    provider: 'kimi',
+    capability: 'CODE',
+    contextWindow: 128000,
+    streaming: true,
+    vision: false,
+    audio: false,
+    functionCalling: true,
+    pricePer1kTokens: { prompt: 0.001, completion: 0.002 },
+    latencyTier: 'medium',
+    status: 'active'
   }
 ];
 

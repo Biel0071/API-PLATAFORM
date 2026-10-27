@@ -202,7 +202,13 @@ export class DirectExecutor implements Executor {
       } else if (providerName === 'anthropic' && isOpenAI) {
         overrideModel = 'auto';
       } else if (providerName === 'ollama') {
-        if (isAnthropic || isOpenAI || t === 'auto') {
+        if (isAnthropic || t.includes('coder') || t.includes('jev')) {
+          overrideModel = 'qwen2.5-coder:1.5b';
+        } else if (isOpenAI || t.includes('llama')) {
+          overrideModel = 'llama3.2:1b';
+        } else if (t.includes('gemma') || t.includes('gemini')) {
+          overrideModel = 'gemma3:1b';
+        } else if (t === 'auto') {
           overrideModel = (provider as any)?.config?.defaultModel || 'qwen2.5:3b';
         }
       }
@@ -407,7 +413,9 @@ export class ExecutionGateway {
     }
     
     // Injetar ferramentas da APILayer
-    payload.tools = [...(payload.tools || []), ...apiLayerTools];
+    if (apiLayerTools.length > 0 || (Array.isArray(payload.tools) && payload.tools.length > 0)) {
+      payload.tools = [...(payload.tools || []), ...apiLayerTools];
+    }
     
     const tracer = new MemoryExecutionTracer();
     const ctx: ExecutionContext = {
@@ -509,7 +517,36 @@ export class ExecutionGateway {
 
     let effectiveModel = payload.model;
     let effectivePool = payload.pool;
-    if (['auto', 'laya', 'decision', 'coding', 'fast', ''].includes(requestedModel)) {
+    if (['auto', 'jev', 'jev-open', 'laya', 'decision', 'coding', 'fast', ''].includes(requestedModel)) {
+      if (isCoding || requestedModel === 'coding') {
+        effectiveModel = 'qwen2.5-coder:1.5b';
+        effectivePool = 'CODING';
+      } else if (isComplex) {
+        effectiveModel = 'deepseek-r1:1.5b';
+        effectivePool = 'REASONING';
+      } else if (isFast || requestedModel === 'fast') {
+        effectiveModel = 'gemma3:1b';
+        effectivePool = 'FAST';
+      } else {
+        effectiveModel = 'llama3.2:1b';
+        effectivePool = 'GENERAL';
+      }
+    } else if (['claude-open', 'sonnet-open', 'jev-coder', 'coder-open', 'qwen-coder'].includes(requestedModel)) {
+      effectiveModel = 'qwen2.5-coder:1.5b';
+      effectivePool = 'CODING';
+    } else if (['chatgpt-open', 'gpt-open', 'openai-open', 'llama', 'llama-open', 'llama3.2'].includes(requestedModel)) {
+      effectiveModel = 'llama3.2:1b';
+      effectivePool = 'GENERAL';
+    } else if (['gemma', 'gemma-open', 'gemma3', 'gemma-3', 'google-open'].includes(requestedModel)) {
+      effectiveModel = 'gemma3:1b';
+      effectivePool = 'GENERAL';
+    } else if (['r1-open', 'deepseek-open', 'reasoning-open', 'reasoning'].includes(requestedModel)) {
+      effectiveModel = 'deepseek-r1:1.5b';
+      effectivePool = 'REASONING';
+    } else if (['vision-open', 'qwen-vision', 'vision'].includes(requestedModel)) {
+      effectiveModel = 'qwen3.5:0.8b';
+      effectivePool = 'VISION';
+    } else if (false) {
       if (isCoding) {
         effectiveModel = intent.recommendedModel || 'deepseek-coder:6.7b';
         effectivePool = 'CODING';

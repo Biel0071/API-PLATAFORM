@@ -349,6 +349,9 @@ export class SmartModelRouter {
 
     // Obter modelos compatíveis do pool ou de todo o catálogo
     let candidateModels = ModelCapabilityRegistry.filterByCapabilities(requiredCaps, pool);
+    if (specificModel && !candidateModels.some((c) => c.id === specificModel.id)) {
+      candidateModels = [specificModel, ...candidateModels];
+    }
 
     if (candidateModels.length === 0) {
       // Relaxa o pool para achar qualquer modelo compatível com as capacidades requeridas
