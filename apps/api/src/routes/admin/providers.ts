@@ -21,6 +21,7 @@ import {
   startHuggingFaceDeviceFlow,
 } from '../../services/provider-oauth.service';
 import { prisma } from '../../lib/prisma';
+import { isProviderProbeExcluded } from '../../services/provider-probe-policy';
 
 export async function providersRoutes(secured: FastifyInstance): Promise<void> {
   secured.get('/provider-oauth/options', { schema: { tags: ['admin'] } }, async () => ({
@@ -117,6 +118,9 @@ export async function providersRoutes(secured: FastifyInstance): Promise<void> {
     await reloadRegistry();
     const providers = await Promise.all(
       registry.list().map(async (p) => {
+        if (isProviderProbeExcluded(p.name)) {
+          return { name: p.name, capabilities: p.capabilities, health: null, models: [], probe: 'excluded' };
+        }
         const health = await Promise.race([
           p.health(),
           new Promise<{ ok: boolean; message: string }>((resolve) =>
@@ -183,6 +187,8 @@ export async function providersRoutes(secured: FastifyInstance): Promise<void> {
     { schema: { tags: ['admin'] } },
     async (req, reply) => {
       const { name } = req.params as { name: string };
+      if (isProviderProbeExcluded(name))
+        return reply.code(409).send(fail('PROVIDER_PROBE_EXCLUDED', 'Provider excluído das sondas nesta implantação'));
       await reloadRegistry();
       if (!registry.has(name))
         return reply

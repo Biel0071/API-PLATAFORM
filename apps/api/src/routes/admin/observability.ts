@@ -41,7 +41,12 @@ export async function observabilityRoutes(secured: FastifyInstance): Promise<voi
     });
     return {
       success: true,
-      usage: usage.map((u: any) => ({ ...u, totalTokens: u.totalTokens.toString() })),
+      usage: usage.map((u: any) => ({
+        ...u,
+        totalTokens: u.totalTokens.toString(),
+        observedTokens: u.observedTokens.toString(),
+        estimatedTokens: u.estimatedTokens.toString(),
+      })),
     };
   });
 

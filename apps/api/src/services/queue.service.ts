@@ -14,6 +14,7 @@ export const QUEUE_NAMES = [
   'seo',
   'translation',
   'classification',
+  'audio',
   'webhook',
   'orchestrator',
 ] as const;

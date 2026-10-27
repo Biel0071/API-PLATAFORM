@@ -24,6 +24,7 @@ export async function registerSecurity(app: FastifyInstance): Promise<void> {
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW_MS,
     redis,
+    skipOnError: true,
     nameSpace: 'apiplatform:rl:',
     keyGenerator: (req) =>
       (req.headers['x-api-key'] as string) ??

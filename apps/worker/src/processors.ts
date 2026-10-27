@@ -1,10 +1,10 @@
 import { promisify } from 'node:util';
 import { UnrecoverableError, type Job } from 'bullmq';
 import { execFile } from 'node:child_process';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { HybridPlanner } from './planner';
@@ -164,7 +164,6 @@ async function runWithFallback<T>(
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { randomUUID } from 'node:crypto';
 import ffmpeg from 'fluent-ffmpeg';
 
 async function extractFramesAdvanced(videoPath: string, maxFrames: number = 20): Promise<string[]> {
@@ -701,19 +700,100 @@ export const webhookProcessor: ProcessorFn = async (job) => {
 // ---------- Worker Audio ----------
 export const audioProcessor: ProcessorFn = async (job, registry) => {
   const data = job.data as any;
-  if (!data.audio && data.filePath) {
-    try {
-      const { readFile } = await import('node:fs/promises');
-      const fileData = await readFile(data.filePath);
-      data.audio = fileData.toString('base64');
-    } catch (e) {
-      console.error('[WORKER] Erro ao ler audio do disco:', e);
-    }
+  const filePath = typeof data.filePath === 'string' ? data.filePath : undefined;
+  const tenantId = data.__tenantId;
+  const projectId = data.__projectId;
+  const jobId = data.__jobId;
+  try {
+  if (filePath) { const disk = await readFile(filePath).catch(() => undefined); if (disk) data.audio = disk.toString('base64'); }
+  if (data.operation === 'transcribe' || data.operation === 'speech') {
+    const engine = (process.env.AUDIO_ENGINE_URL ?? 'http://audio-engine:8000').replace(/\/$/, '');
+    const response = await fetch(`${engine}/${data.operation}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(data.operation === 'transcribe'
+        ? { audio: data.audio, language: data.language ?? 'pt' }
+        : { text: data.text, voice: data.voice ?? 'pf_dora', profile: data.profile ?? 'natural', speed: data.speed ?? 1.0 }),
+      signal: AbortSignal.timeout(Number(process.env.AUDIO_ENGINE_TIMEOUT_MS ?? 240_000)),
+    });
+    if (!response.ok) throw new Error(`Audio engine indisponivel (${response.status})`);
+    const result = await response.json() as Record<string, unknown>;
+    if (data.operation === 'speech') return await saveSpeechAsset(result, { tenantId, projectId, jobId });
+    return ok({ provider: 'local-audio', model: String(result.model ?? data.operation), executionTime: 0, tokens: {}, result });
   }
-  return runWithFallback(registry, 'audio', data.provider, (provider, routedModel) =>
-    provider.audio ? provider.audio({ ...data, model: data.model ?? routedModel }) : (provider as any).notSupported('audio'), 'general', data,
-  );
+  if (data.operation === 'conversation') {
+    const engine = (process.env.AUDIO_ENGINE_URL ?? 'http://audio-engine:8000').replace(/\/$/, '');
+    const stt = await fetch(`${engine}/transcribe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ audio: data.audio, language: data.language ?? 'pt' }), signal: AbortSignal.timeout(240_000) });
+    if (!stt.ok) throw new Error(`Transcricao local indisponivel (${stt.status})`);
+    const transcript = await stt.json() as { text?: string };
+    const localModel = registry.get('ollama');
+    if (!localModel) throw new Error('Modelo local Ollama nao configurado; nao foi usado fallback externo');
+    const reply = await localModel.chat({ messages: [{ role: 'system', content: String(data.prompt) }, { role: 'user', content: transcript.text ?? '' }] });
+    if ('stream' in reply) throw new Error('Resposta em streaming nao suportada neste fluxo de audio por turnos');
+    const answer = reply.result.message?.content;
+    if (typeof answer !== 'string' || !answer.trim()) throw new Error('Modelo local retornou resposta vazia');
+    const tts = await fetch(`${engine}/speech`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: answer, voice: data.voice ?? 'pf_dora', profile: data.profile ?? 'natural', speed: data.speed ?? 1.0 }), signal: AbortSignal.timeout(240_000) });
+    if (!tts.ok) throw new Error(`Geracao de fala local indisponivel (${tts.status})`);
+    const saved = await saveSpeechAsset(await tts.json() as Record<string, unknown>, { tenantId, projectId, jobId });
+    return ok({ provider: 'local-audio+local-llm', model: 'stt-chat-tts', executionTime: 0, tokens: {}, result: { transcript: transcript.text, answer, speech: saved.result } });
+  }
+  if (data.operation === 'transform') {
+    const engine = (process.env.AUDIO_ENGINE_URL ?? 'http://audio-engine:8000').replace(/\/$/, '');
+    const response = await fetch(`${engine}/transform`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ audio: data.audio, voice: data.voice ?? 'pf_dora', profile: data.profile ?? 'natural', speed: data.speed ?? 1.0, language: data.language ?? 'pt' }),
+      signal: AbortSignal.timeout(Number(process.env.AUDIO_ENGINE_TIMEOUT_MS ?? 240_000)),
+    });
+    if (!response.ok) throw new Error(`Transformacao de voz indisponivel (${response.status})`);
+    const result = await response.json() as Record<string, unknown>;
+    const saved = await saveSpeechAsset(result, { tenantId, projectId, jobId });
+    return ok({ provider: 'local-audio', model: String(result.model ?? 'sts-kokoro'), executionTime: 0, tokens: {}, result: { ...saved.result, transcript: result.transcript, voice: result.voice, profile: result.profile, speech: saved.result } });
+  }
+  if (data.operation === 'ai-speech') {
+    const engine = (process.env.AUDIO_ENGINE_URL ?? 'http://audio-engine:8000').replace(/\/$/, '');
+    const preferred = data.provider && registry.has(data.provider) ? registry.get(data.provider) : (registry.has('ollama') ? registry.get('ollama') : registry.list().find((p) => p.capabilities.includes('chat')));
+    if (!preferred) throw new Error('Nenhum modelo de IA configurado para gerar o texto da fala');
+    const messages = [
+      { role: 'system' as const, content: String(data.system || 'Responda em português brasileiro de forma natural, fluida e pronta para ser narrada em voz alta, sem marcações markdown.') },
+      { role: 'user' as const, content: String(data.prompt) },
+    ];
+    const reply = await preferred.chat({ messages, model: data.model });
+    if ('stream' in reply) throw new Error('Streaming nao suportado em ai-speech');
+    const answer = reply.result.message?.content;
+    if (typeof answer !== 'string' || !answer.trim()) throw new Error('Modelo de IA retornou resposta vazia');
+    const tts = await fetch(`${engine}/speech`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: answer, voice: data.voice ?? 'pf_dora', profile: data.profile ?? 'natural', speed: data.speed ?? 1.0 }),
+      signal: AbortSignal.timeout(240_000),
+    });
+    if (!tts.ok) throw new Error(`Geracao de fala local indisponivel (${tts.status})`);
+    const saved = await saveSpeechAsset(await tts.json() as Record<string, unknown>, { tenantId, projectId, jobId });
+    return ok({ provider: preferred.name, model: `${reply.model}+kokoro`, executionTime: 0, tokens: reply.tokens ?? {}, result: { ...saved.result, text: answer, answer, speech: saved.result } });
+  }
+  throw new UnrecoverableError(`Unsupported local audio operation: ${String(data.operation ?? 'missing')}`);
+  } finally {
+    const attempts = Number((job.opts as any)?.attempts ?? 1);
+    if (filePath && (job.attemptsMade + 1 >= attempts)) await unlink(filePath).catch(() => undefined);
+    delete data.audio;
+  }
 };
+
+async function saveSpeechAsset(result: Record<string, unknown>, scope: { tenantId?: string; projectId?: string; jobId?: string }) {
+  const encoded = typeof result.audio === 'string' ? result.audio : '';
+  const bytes = Buffer.from(encoded, 'base64');
+  if (!bytes.length || bytes.length > 32 * 1024 * 1024) throw new Error('Audio engine returned an invalid or oversized audio artifact');
+  if (!scope.tenantId) throw new Error('Cannot persist audio asset without tenant scope');
+  const id = randomUUID();
+  const audioRoot = process.env.AUDIO_STORAGE_PATH ?? (process.env.NODE_ENV === 'production' ? '/app/storage/audio' : path.join(tmpdir(), 'api-platform-audio'));
+  const filePath = path.join(audioRoot, 'assets', `${id}.wav`);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, bytes, { flag: 'wx' });
+  try {
+    await prisma.audioAsset.create({ data: { id, tenantId: scope.tenantId, projectId: scope.projectId, jobId: scope.jobId, kind: 'speech', mimeType: 'audio/wav', filePath } });
+  } catch (error) { await unlink(filePath).catch(() => undefined); throw error; }
+  return ok({ provider: 'local-audio', model: String(result.model ?? 'kokoro'), executionTime: 0, tokens: {}, result: { assetId: id, url: `/v1/audio/assets/${id}`, mimeType: 'audio/wav', voice: result.voice, profile: result.profile, audioBase64: encoded } });
+}
 
 // ---------- Worker Mission ----------
 export const missionProcessor: ProcessorFn = async (job, registry) => {

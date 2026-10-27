@@ -21,6 +21,8 @@ export interface OllamaConfig {
   embedModel?: string;
   visionModel?: string;
   maxParallel?: number;
+  /** Tempo de permanência do modelo após uma requisição. Use 0 para descarregar. */
+  keepAlive?: string | number;
   /**
    * Timeout do HTTP client pra cada chamada de texto/chat ao Ollama.
    * Default (90s) foi calibrado pro cenario de tunel Cloudflare local, que
@@ -84,7 +86,11 @@ export class OllamaProvider extends BaseProvider {
 
   constructor(private readonly config: OllamaConfig) {
     super();
-    this.semaphore = new Semaphore(config.maxParallel && config.maxParallel > 0 ? config.maxParallel : 3);
+    this.semaphore = new Semaphore(config.maxParallel && config.maxParallel > 0 ? config.maxParallel : 1);
+  }
+
+  private get keepAlive(): string | number {
+    return this.config.keepAlive ?? '5m';
   }
 
   private url(path: string): string {
@@ -119,9 +125,7 @@ export class OllamaProvider extends BaseProvider {
           system: input.system,
           stream: false,
           format: input.json ? 'json' : undefined,
-          // Mantem o modelo residente entre chamadas (evita reload de ~7-15s).
-          // O worker de imagem preserva este modelo em releaseOllamaMemoryForImage.
-          keep_alive: -1,
+          keep_alive: this.keepAlive,
           options: {
             temperature: input.temperature,
             num_predict: input.maxTokens,
@@ -140,7 +144,7 @@ export class OllamaProvider extends BaseProvider {
             system: input.system,
             stream: false,
             format: input.json ? 'json' : undefined,
-            keep_alive: -1,
+            keep_alive: this.keepAlive,
             options: {
               temperature: input.temperature,
               num_predict: input.maxTokens,
@@ -185,7 +189,7 @@ export class OllamaProvider extends BaseProvider {
           messages,
           stream: false,
           tools: input.tools,
-          keep_alive: -1,
+          keep_alive: this.keepAlive,
           options: { temperature: input.temperature, num_predict: input.maxTokens },
         },
         timeoutMs: this.config.timeoutMs ?? 90_000,
@@ -200,7 +204,7 @@ export class OllamaProvider extends BaseProvider {
             messages,
             stream: false,
             tools: input.tools,
-            keep_alive: -1,
+            keep_alive: this.keepAlive,
             options: { temperature: input.temperature, num_predict: input.maxTokens },
           },
           timeoutMs: this.config.timeoutMs ?? 90_000,
@@ -248,7 +252,7 @@ export class OllamaProvider extends BaseProvider {
           messages,
           stream: true,
           tools: input.tools,
-          keep_alive: -1,
+          keep_alive: this.keepAlive,
           options: { temperature: input.temperature, num_predict: input.maxTokens },
         }),
         signal: controller.signal,
@@ -370,28 +374,12 @@ export class OllamaProvider extends BaseProvider {
     }));
   }
 
-  /**
-   * Health real: faz uma inferencia minima (num_predict:1) no modelo default,
-   * em vez de so listar /api/tags. Listar tags responde "ok" mesmo com o
-   * runtime de inferencia travado/sem modelo carregado - falso positivo que
-   * mascarava indisponibilidade. Aqui, se o modelo nao gera nem 1 token, o
-   * health falha de verdade. keep_alive mantem o modelo quente apos o probe.
-   */
+  /** Checagem operacional sem inferência, adequada a sondas periódicas. */
   override async health(): Promise<HealthStatus> {
     const start = Date.now();
     try {
-      const model = this.config.defaultModel;
-      if (!model) {
-        const models = await this.models();
-        return { ok: models.length > 0, latencyMs: Date.now() - start, modelCount: models.length };
-      }
-      const data = await this.http<any>(this.url('/api/generate'), {
-        method: 'POST',
-        body: { model, prompt: 'ok', stream: false, keep_alive: -1, options: { num_predict: 1 } },
-        timeoutMs: this.config.healthTimeoutMs ?? 20_000,
-      });
-      const ok = typeof data?.response === 'string';
-      return { ok, latencyMs: Date.now() - start, message: ok ? undefined : 'modelo nao gerou resposta' };
+      const models = await this.models();
+      return { ok: models.length > 0, latencyMs: Date.now() - start, modelCount: models.length, message: models.length ? undefined : 'nenhum modelo disponível' };
     } catch (err) {
       return { ok: false, latencyMs: Date.now() - start, message: err instanceof Error ? err.message : String(err) };
     }

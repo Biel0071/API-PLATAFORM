@@ -90,7 +90,7 @@ export class ProviderAttemptTracker {
     const prices = internal ? [] : await this.bestEffort(() => this.dependencies.loadPrices(target.provider), [] as ProviderModelPrice[]);
     const start = Date.now();
     const finish = async (success: boolean, response?: any, error?: any) => {
-      const tokens = observedTokens(response?.tokens ?? error?.tokens);
+      const tokens = internal ? null : observedTokens(response?.tokens ?? error?.tokens);
       const model = typeof response?.model === 'string' ? response.model : target.model || 'provider-default';
       const price = prices.find((entry) => entry.modelId === model);
       // Positive legacy tariffs predate the explicit flag and are already configured.

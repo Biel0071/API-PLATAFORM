@@ -12,6 +12,7 @@ import {
 import type { ProviderAccount } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
+import { isProviderProbeExcluded } from './provider-probe-policy';
 import { redis } from '../lib/redis';
 
 type RuntimeAccount = ProviderAccount & {
@@ -145,6 +146,14 @@ export async function testProviderAccountHealth(accountId: string) {
       404,
       false,
     );
+  if (isProviderProbeExcluded(account.providerName))
+    throw new ProviderError(
+      account.providerName,
+      'Provider excluído das sondas nesta implantação',
+      'PROVIDER_PROBE_EXCLUDED',
+      409,
+      false,
+    );
   if (!account.configured)
     throw new ProviderError(
       account.providerName,
@@ -153,30 +162,60 @@ export async function testProviderAccountHealth(accountId: string) {
       409,
       false,
     );
-  const checkedAt = new Date();
+  const startedAt = Date.now();
   let result;
   try {
     result = await account.provider.health();
   } catch (error) {
     result = {
       ok: false,
-      latencyMs: Date.now() - checkedAt.getTime(),
+      latencyMs: Date.now() - startedAt,
       message: error instanceof Error ? error.message : 'Health check failed',
     };
   }
+  let modelCount = result.modelCount ?? null;
+  if (result.ok && result.modelCount === undefined) {
+    try {
+      modelCount = (await account.provider.models()).length;
+    } catch {
+      result = { ...result, ok: false, message: 'Conexão respondeu, mas a descoberta de modelos falhou' };
+    }
+  }
+  const checkedAt = new Date();
+  const latencyMs = Math.max(result.latencyMs ?? 0, Date.now() - startedAt);
   await prisma.providerAccount.update({
     where: { id: accountId },
     data: {
       healthOk: result.ok,
       healthCheckedAt: checkedAt,
-      healthLatencyMs: Number.isFinite(result.latencyMs)
-        ? Math.max(0, Math.round(result.latencyMs ?? 0))
+      healthLatencyMs: Number.isFinite(latencyMs)
+        ? Math.max(0, Math.round(latencyMs))
         : null,
     },
   });
   return {
     ok: result.ok,
-    latencyMs: result.latencyMs ?? null,
-    modelCount: result.modelCount ?? null,
+    latencyMs: Number.isFinite(latencyMs) ? Math.max(0, Math.round(latencyMs)) : null,
+    modelCount,
+    checkedAt: checkedAt.toISOString(),
+    message: result.message,
   };
+}
+
+/** Atualiza saúde e descoberta de modelos das contas habilitadas, uma por vez. */
+export async function refreshConfiguredProviderAccountHealth(): Promise<Set<string>> {
+  const runtime = await loadProviderAccountRuntime(createRegistryFromEnv(process.env));
+  const accounts = await runtime.pool.listAccounts();
+  const checkedProviders = new Set<string>();
+  for (const account of accounts) {
+    if (!account.enabled || !account.configured || isProviderProbeExcluded(account.providerName)) continue;
+    try {
+      await testProviderAccountHealth(account.accountId);
+      checkedProviders.add(account.providerName);
+    } catch (error) {
+      if (error instanceof ProviderError && error.code === 'PROVIDER_PROBE_EXCLUDED') continue;
+      // Keep checking other accounts when one provider is offline.
+    }
+  }
+  return checkedProviders;
 }

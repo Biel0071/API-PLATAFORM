@@ -65,9 +65,11 @@ export interface MonitoringDashboardData {
   aiUsage: {
     totalRequests24h: number;
     totalTokens24h: number;
+    estimatedTokens24h: number;
+    unreportedTokenRequests24h: number;
     estimatedCost24h: number;
     avgLatencyMs: number;
-    byProvider: Record<string, { requests: number; tokens: number; cost: number; avgLatencyMs: number }>;
+    byProvider: Record<string, { requests: number; tokens: number; estimatedTokens: number; unreportedTokenRequests: number; cost: number; avgLatencyMs: number }>;
   };
   recentEvents: unknown[];
 }
@@ -116,8 +118,8 @@ export class CentralMonitoringService {
       withTimeout(queueStats().catch(() => []), 1500, []),
       withTimeout(
         prisma.requestLog.groupBy({
-          by: ['provider'],
-          where: { createdAt: { gte: since } },
+          by: ['provider', 'tokenUsageSource'],
+          where: { createdAt: { gte: since }, cached: false },
           _count: { id: true },
           _sum: { totalTokens: true, cost: true },
           _avg: { durationMs: true },
@@ -141,27 +143,30 @@ export class CentralMonitoringService {
     const totalFailed = qStats.reduce((acc, q) => acc + (q.failed || 0), 0);
 
     // AI Usage in last 24h
-    const byProvider: Record<string, { requests: number; tokens: number; cost: number; avgLatencyMs: number }> = {};
+    const byProvider: Record<string, { requests: number; tokens: number; estimatedTokens: number; unreportedTokenRequests: number; cost: number; avgLatencyMs: number }> = {};
     let totalRequests24h = 0;
     let totalTokens24h = 0;
+    let estimatedTokens24h = 0;
+    let unreportedTokenRequests24h = 0;
     let estimatedCost24h = 0;
     let avgLatencyMs = 0;
 
     for (const log of logs) {
       const reqs = log._count.id || 0;
-      const tokens = log._sum.totalTokens || 0;
+      const tokenCount = log._sum.totalTokens || 0;
       const cost = Number((log._sum.cost || 0).toFixed(4));
       const latency = Math.round(log._avg.durationMs || 0);
-
-      byProvider[log.provider] = {
-        requests: reqs,
-        tokens,
-        cost,
-        avgLatencyMs: latency,
-      };
+      const aggregate = byProvider[log.provider] ?? { requests: 0, tokens: 0, estimatedTokens: 0, unreportedTokenRequests: 0, cost: 0, avgLatencyMs: 0 };
+      const weightedDuration = aggregate.avgLatencyMs * aggregate.requests + latency * reqs;
+      aggregate.requests += reqs;
+      aggregate.cost += cost;
+      if (log.tokenUsageSource === 'observed') { aggregate.tokens += tokenCount; totalTokens24h += tokenCount; }
+      else if (log.tokenUsageSource === 'estimated') { aggregate.estimatedTokens += tokenCount; estimatedTokens24h += tokenCount; }
+      else if (log.tokenUsageSource === 'unknown') { aggregate.unreportedTokenRequests += reqs; unreportedTokenRequests24h += reqs; }
+      aggregate.avgLatencyMs = aggregate.requests ? Math.round(weightedDuration / aggregate.requests) : 0;
+      byProvider[log.provider] = aggregate;
 
       totalRequests24h += reqs;
-      totalTokens24h += tokens;
       estimatedCost24h += cost;
     }
 
@@ -236,6 +241,8 @@ export class CentralMonitoringService {
       aiUsage: {
         totalRequests24h,
         totalTokens24h,
+        estimatedTokens24h,
+        unreportedTokenRequests24h,
         estimatedCost24h: Number(estimatedCost24h.toFixed(4)),
         avgLatencyMs,
         byProvider,

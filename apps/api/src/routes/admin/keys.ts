@@ -24,7 +24,7 @@ export async function keysRoutes(secured: FastifyInstance): Promise<void> {
     const body = z.object({
       name: z.string().min(1), tenantId: z.string().min(1), projectId: z.string().min(1).optional(),
       environment: z.enum(['live', 'test', 'dev']).default('live'),
-      scopes: z.array(z.enum(['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow', 'admin'])).min(1).default(['text', 'chat']),
+      scopes: z.array(z.enum(['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'audio', 'workflow', 'admin'])).min(1).default(['text', 'chat']),
       expiresAt: z.string().datetime().optional(),
     }).parse(req.body);
     if (body.projectId) {
@@ -53,7 +53,7 @@ export async function keysRoutes(secured: FastifyInstance): Promise<void> {
     const body = z.object({
       name: z.string().min(1).optional(),
       environment: z.enum(['live', 'test', 'dev']).optional(),
-      scopes: z.array(z.enum(['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow', 'admin'])).min(1).optional(),
+      scopes: z.array(z.enum(['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'audio', 'workflow', 'admin'])).min(1).optional(),
     }).parse(req.body);
     
     const oldKey = await prisma.apiKey.findUnique({ where: { id } });

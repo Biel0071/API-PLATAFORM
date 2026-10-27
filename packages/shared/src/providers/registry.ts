@@ -377,6 +377,7 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
         embedModel: env.OLLAMA_EMBED_MODEL || process.env.OLLAMA_EMBED_MODEL,
         visionModel: env.OLLAMA_VISION_MODEL || process.env.OLLAMA_VISION_MODEL,
         maxParallel: env.OLLAMA_NUM_PARALLEL ? Number(env.OLLAMA_NUM_PARALLEL) : undefined,
+        keepAlive: env.OLLAMA_KEEP_ALIVE || process.env.OLLAMA_KEEP_ALIVE || undefined,
         timeoutMs: env.OLLAMA_TIMEOUT_MS ? Number(env.OLLAMA_TIMEOUT_MS) : undefined,
         healthTimeoutMs: env.OLLAMA_HEALTH_TIMEOUT_MS
           ? Number(env.OLLAMA_HEALTH_TIMEOUT_MS)

@@ -22,6 +22,7 @@ const db = vi.hoisted(() => ({
       promptTokens: complete('promptTokens') ? sum('promptTokens') : null,
       completionTokens: complete('completionTokens') ? sum('completionTokens') : null,
       totalTokens: complete('totalTokens') ? sum('totalTokens') : null,
+      observedTokens: sum('totalTokens'),
       estimatedCost: complete('estimatedCost') ? sum('estimatedCost') : null,
       pricingConfigured: rows.every((r) => r.pricingConfigured),
       missingUsageAttempts: rows.filter((r) => r.totalTokens == null).length,
@@ -73,6 +74,11 @@ beforeEach(() => {
 });
 
 describe('provider attempts and account usage', () => {
+  it('does not report internal token estimates as observed provider usage', async () => {
+    await providerAttemptTracker.observe(createProviderAttemptContext(), { provider: 'laya', providerAccountId: 'account-a', capability: 'chat' }, async () => result());
+    expect(state.rows[0]).toMatchObject({ provider: 'laya', promptTokens: null, completionTokens: null, totalTokens: null, estimatedCost: null });
+  });
+
   it('snapshots prices before invocation and preserves observed zero versus unavailable usage/pricing', async () => {
     const context = createProviderAttemptContext({ correlationId: 'call', executionId: 'execution' });
     await providerAttemptTracker.observe(context, { provider: 'openai', providerAccountId: 'account-a', model: 'test-model', capability: 'chat' }, async () => {
@@ -237,8 +243,11 @@ describe('provider attempts and account usage', () => {
 
   it('marks window totals unavailable when any real attempt lacks tokens or pricing', async () => {
     const now = new Date();
-    state.rows = [{ providerAccountId: 'account-a', correlationId: 'failure', createdAt: now, promptTokens: null, completionTokens: null, totalTokens: null, estimatedCost: null, pricingConfigured: false }];
-    expect((await getProviderAccountUsage('account-a', now)).last5h).toMatchObject({ attempts: 1, totalTokens: null, estimatedCost: null, missingUsageAttempts: 1, missingPricingAttempts: 1, missingCostAttempts: 1 });
+    state.rows = [
+      { providerAccountId: 'account-a', correlationId: 'failure', createdAt: now, promptTokens: null, completionTokens: null, totalTokens: null, estimatedCost: null, pricingConfigured: false },
+      { providerAccountId: 'account-a', correlationId: 'observed', createdAt: now, promptTokens: 8, completionTokens: 4, totalTokens: 12, estimatedCost: null, pricingConfigured: false },
+    ];
+    expect((await getProviderAccountUsage('account-a', now)).last5h).toMatchObject({ attempts: 2, totalTokens: null, observedTokens: 12, estimatedCost: null, missingUsageAttempts: 1, missingPricingAttempts: 2, missingCostAttempts: 2 });
   });
 
   it('does not label missing token components as missing pricing and exposes the protected usage route', async () => {

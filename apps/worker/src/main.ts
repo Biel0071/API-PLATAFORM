@@ -448,7 +448,7 @@ async function assessJobQuality(
   data: Record<string, any>,
   response: StandardResponse,
 ): Promise<QualityReport | undefined> {
-  if (queue === 'webhook' || queue === 'embedding') return undefined;
+  if (queue === 'webhook' || queue === 'embedding' || queue === 'audio') return undefined;
   const threshold = clampQuality(data.minQuality ?? process.env.MIN_OUTPUT_QUALITY ?? 90);
   const text = resultAsText(response.result);
   const generatedImages = (
@@ -651,7 +651,7 @@ for (const name of queueNames) {
     {
       connection: connection(),
       prefix,
-      concurrency: name === 'image' ? imageConcurrency : effectiveConcurrency,
+      concurrency: name === 'image' ? imageConcurrency : name === 'audio' ? 1 : effectiveConcurrency,
       lockDuration: 120_000,
       stalledInterval: 30_000,
       maxStalledCount: 2,
@@ -706,7 +706,7 @@ function tuneConcurrency(): void {
   effectiveConcurrency = target;
   jobScheduler.setLimit(target);
   for (const [queueName, worker] of workersByQueue) {
-    if (queueName !== 'image') worker.concurrency = target;
+    if (queueName !== 'image' && queueName !== 'audio') worker.concurrency = target;
   }
   logger.warn(
     {

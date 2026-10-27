@@ -7,6 +7,7 @@ interface AccountUsageWindow {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  observedTokens: number;
   estimatedCost: number | null;
   pricingConfigured: boolean;
   missingUsageAttempts: number;
@@ -27,6 +28,7 @@ export async function getProviderAccountUsage(accountId: string, now = new Date(
         CASE WHEN COUNT("promptTokens") = COUNT(*) THEN COALESCE(SUM("promptTokens"), 0)::float8 ELSE NULL END AS "promptTokens",
         CASE WHEN COUNT("completionTokens") = COUNT(*) THEN COALESCE(SUM("completionTokens"), 0)::float8 ELSE NULL END AS "completionTokens",
         CASE WHEN COUNT("totalTokens") = COUNT(*) THEN COALESCE(SUM("totalTokens"), 0)::float8 ELSE NULL END AS "totalTokens",
+        COALESCE(SUM("totalTokens"), 0)::float8 AS "observedTokens",
         CASE WHEN COUNT("estimatedCost") = COUNT(*) THEN COALESCE(SUM("estimatedCost"), 0)::float8 ELSE NULL END AS "estimatedCost",
         COALESCE(BOOL_AND("pricingConfigured"), true) AS "pricingConfigured",
         COUNT(*) FILTER (WHERE "totalTokens" IS NULL)::integer AS "missingUsageAttempts",

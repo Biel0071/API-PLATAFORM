@@ -191,6 +191,64 @@ describe('provider account CRUD', () => {
     expect(await listProviderAccounts('anthropic')).toEqual([]);
   });
 
+  it('returns only the non-secret Cloudflare account ID for safe editing', async () => {
+    const account = await createProviderAccount({
+      ...cloud,
+      providerName: 'cloudflare',
+      settings: { accountId: 'public-account-id', defaultModel: '@cf/model' },
+    });
+    const stored = state.accounts.get(account.id);
+    stored.oauthAccessTokenEncrypted = 'private-access-token';
+    stored.oauthRefreshTokenEncrypted = 'private-refresh-token';
+    const [view] = await listProviderAccounts('cloudflare');
+    expect(view.accountId).toBe('public-account-id');
+    expect(view).not.toHaveProperty('credentialEncrypted');
+    expect(view).not.toHaveProperty('oauthAccessTokenEncrypted');
+    expect(view).not.toHaveProperty('oauthRefreshTokenEncrypted');
+    expect(JSON.stringify(view)).not.toContain(stored.credentialEncrypted);
+    expect(JSON.stringify(view)).not.toContain('private-');
+    await updateProviderAccount(account.id, {
+      settings: { accountId: 'new-public-id', defaultModel: '@cf/model' },
+    });
+    expect((await listProviderAccounts('cloudflare'))[0].accountId).toBe('new-public-id');
+    const other = await createProviderAccount(cloud);
+    expect(other).not.toHaveProperty('accountId');
+  });
+
+  it('preserves imported account model, tier and Cloudflare ID when editing legacy defaults', async () => {
+    await saveProviderConfig({
+      name: 'cloudflare',
+      enabled: true,
+      apiKey: 'synthetic-cf-key',
+      accountId: 'public-cf-id',
+    });
+    const [imported] = await listProviderAccounts('cloudflare');
+    await updateProviderAccount(imported.id, {
+      settings: {
+        accountId: 'public-cf-id',
+        defaultModel: '@cf/kept-model',
+        accountTier: 'enterprise',
+      },
+    });
+    await saveProviderConfig({
+      name: 'cloudflare',
+      enabled: true,
+      defaultChat: true,
+      embedModel: 'kept-embedding',
+    });
+    const [refreshed] = await listProviderAccounts('cloudflare');
+    expect(refreshed).toMatchObject({
+      accountId: 'public-cf-id',
+      defaultModel: '@cf/kept-model',
+      accountTier: 'enterprise',
+    });
+    expect(state.accounts.get(imported.id).settings).toEqual({
+      accountId: 'public-cf-id',
+      defaultModel: '@cf/kept-model',
+      accountTier: 'enterprise',
+    });
+  });
+
   it('preserves catalog defaults and models when another account is added', async () => {
     const catalog = {
       id: 'provider-openai',

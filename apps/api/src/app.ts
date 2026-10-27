@@ -19,6 +19,7 @@ import { queueStats } from './services/queue.service';
 import { registerOpenAICompatRoutes } from './routes/v1/openai-compat';
 import { registerAnthropicCompatRoutes } from './routes/v1/anthropic-compat';
 import { providerHealthState } from './services/health-check.service';
+import { isProviderProbeExcluded } from './services/provider-probe-policy';
 import { registerGoogleOAuthCallback } from './routes/provider-oauth-callback';
 import { ProviderOAuthError } from './services/provider-oauth.service';
 
@@ -63,8 +64,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       return reply.code(409).send(fail('CONFLICT', 'Já existe um registro com esse identificador'));
     }
-    if (err instanceof ZodError) {
-      return reply.code(400).send(fail('VALIDATION_ERROR', 'Payload invalido', err.flatten()));
+    if (err instanceof ZodError || ((err as { name?: string })?.name === 'ZodError' && typeof (err as ZodError).flatten === 'function')) {
+      return reply.code(400).send(fail('VALIDATION_ERROR', 'Payload invalido', (err as ZodError).flatten()));
     }
     if (err instanceof ProviderError) {
       return reply.code(err.statusCode).send(fail(err.code, 'Provider request failed'));
@@ -159,6 +160,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     const deepProviderHealth = process.env.DEEP_PROVIDER_HEALTH === 'true';
     const providerDetails: Record<string, any> = {};
     for (const p of registry.list()) {
+      if (isProviderProbeExcluded(p.name)) {
+        providerDetails[p.name] = { online: null, latency: null, models: [], message: 'provider probe excluded', status: 'UNKNOWN', checkedAt: null };
+        continue;
+      }
       if (!deepProviderHealth) {
         const measured = providerHealthState.get(p.name);
         const fresh = measured && Date.now() - measured.lastCheck < 120000;
@@ -187,9 +192,6 @@ export async function buildApp(): Promise<FastifyInstance> {
           models,
           message: health.message,
           status: health.ok ? 'ONLINE' : 'OFFLINE',
-          cost: 0,
-          tokens: 0,
-          requests: 0,
           score: 1.0, // base score
           fallback: true
         };
@@ -237,6 +239,9 @@ export async function buildApp(): Promise<FastifyInstance> {
       const quota = ProviderQuotaManager.getStatus(provider.name);
       const registeredModels = ModelCapabilityRegistry.listModels().filter((m) => m.provider === provider.name);
       const pools = Array.from(new Set(registeredModels.flatMap((m) => m.pools)));
+      if (isProviderProbeExcluded(provider.name)) {
+        return { name: provider.name, status: 'excluded', health: null, latencyMs: null, models: [], capabilities: provider.capabilities, pools, quota, keyCount: configuredKeyCount(provider.name), credentials: 'not_probed' };
+      }
       try {
         // Ollama health performs one real token generation; allow cold model load.
         const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('provider probe timeout')), Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || 70_000)));

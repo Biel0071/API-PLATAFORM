@@ -34,6 +34,8 @@ model Tenant {
   prompts  Prompt[]
   promptTemplates PromptTemplate[]
   credits  Credit[]
+  audioVoices AudioVoice[]
+  audioAssets AudioAsset[]
 }
 
 model Project {
@@ -48,6 +50,8 @@ model Project {
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   apiKeys ApiKey[]
+  audioVoices AudioVoice[]
+  audioAssets AudioAsset[]
 
   @@index([tenantId])
 }
@@ -79,7 +83,7 @@ model ApiKey {
   active      Boolean   @default(true)
   lastUsedAt  DateTime?
   expiresAt   DateTime?
-  scopes      String    @default("text,chat,image,video,vision,embed,ocr,workflow")
+  scopes      String    @default("text,chat,image,video,vision,embed,ocr,audio,workflow")
   environment String    @default("live")
   createdAt   DateTime  @default(now())
 
@@ -89,6 +93,34 @@ model ApiKey {
 
   @@index([tenantId])
   @@index([projectId])
+}
+
+model AudioVoice {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String?
+  name      String
+  filePath  String
+  mimeType  String   @default("audio/wav")
+  consentAt DateTime
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@index([tenantId, projectId])
+}
+
+model AudioAsset {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String?
+  jobId     String?
+  kind      String
+  mimeType  String
+  filePath  String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@index([tenantId, projectId, createdAt])
 }
 
 // ---------- Providers / Modelos ----------
@@ -232,6 +264,7 @@ model RequestLog {
   promptTokens     Int      @default(0)
   completionTokens Int      @default(0)
   totalTokens      Int      @default(0)
+  tokenUsageSource String   @default("unknown")
   cost             Float    @default(0)
   createdAt        DateTime @default(now())
 
@@ -252,6 +285,10 @@ model Usage {
   requests    Int      @default(0)
   cachedHits  Int      @default(0)
   totalTokens BigInt   @default(0)
+  observedTokens BigInt @default(0)
+  observedTokenRequests Int @default(0)
+  estimatedTokens BigInt @default(0)
+  estimatedTokenRequests Int @default(0)
   cost        Float    @default(0)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)

@@ -22,8 +22,8 @@ declare module 'fastify' {
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string; email: string; role: string };
-    user: { sub: string; email: string; role: string };
+    payload: { sub: string; email: string; role: string; tenantId?: string };
+    user: { sub: string; email: string; role: string; tenantId?: string };
   }
 }
 
@@ -85,7 +85,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
             ctx = {
               tenantId: decoded.tenantId || 'default',
               apiKeyId: `${isAdmin ? 'admin' : 'user'}_${decoded.sub}`,
-              scopes: isAdmin ? ['*'] : ['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow'],
+              scopes: isAdmin ? ['*'] : ['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'audio', 'workflow'],
             };
             await redis.setex(cacheId, API_KEY_CACHE_TTL, JSON.stringify(ctx)).catch(() => undefined);
             break;

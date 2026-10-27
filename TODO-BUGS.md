@@ -7,6 +7,23 @@ Sempre que o robô (Playwright ou API Flood) encontrar um erro, uma checkbox ser
 
 ## Falhas Pendentes (Ação Requerida)
 
+### Triagem para o Estúdio de Áudio (2026-10-19)
+
+- `CLOUD-PROVIDERS-01`: permanece aberto; Groq não é necessário para áudio local.
+- `VPS-MODELS-03` e `VPS-MODELS-02`: permanecem abertos; visão e DeepSeek lento não fazem parte do caminho STT/TTS inicial.
+- `VPS-MODELS-01`: permanece aberto para o antigo container Fênix, que não estava ativo no inventário da `.22`. O container API Platform atual alcançou `host.docker.internal:11434/api/tags` com HTTP 200; esta evidência valida apenas o caminho do API Platform atual.
+- Decisão: esses itens foram triados como independentes; não anunciar capacidades relacionadas como validadas. Prosseguir somente com testes do novo caminho de áudio e sem instalar modelos na VPS até haver capacidade de disco/RAM suficiente e plano de rollback.
+
+### Auditoria de providers e capacidade da VPS (2026-10-19)
+
+- O dashboard autenticado mostra três conexões: Groq, Ollama e ComfyUI; demais contas do catálogo estão desconectadas. Groq foi excluído da rodada por decisão do usuário e não recebeu sondas nesta auditoria.
+- Ollama respondeu `/api/tags` no host (`HTTP 200`, 5 ms) e no container API Platform (`HTTP 200`); ambos descobriram os mesmos quatro modelos instalados. Essa descoberta não valida geração, visão ou latência útil. A tela ainda mostra 477 ms da medição anterior.
+- ComfyUI não tem listener em `8188` (`connection refused`); os arquivos de modelo ocupam 4,3 GiB. A RAM disponível é ~990 MiB com `llama-server` usando ~1,9 GiB. Geração de imagem foi deixada indisponível, sem iniciar carga que pode causar OOM.
+- Nenhum serviço/volume de áudio existe na stack ativa. A partição tem 6,3 GiB livres. STT/TTS e o pipeline com Ollama não foram executados; motores permanecem não validados até preparar capacidade, pesos e rollback.
+- O container antigo `grg-fenix-enterprise-api-1` existe, mas está `exited`; o problema VPS-MODELS-01 não pode ser reproduzido pelo fluxo daquele container. O caminho ativo API Platform → `host.docker.internal:11434/api/tags` está acessível. Isso não comprova conectividade do processo Fênix atual.
+- VPS-MODELS-02/03 permanecem abertos com os benchmarks registrados abaixo. Não foram repetidos devido à baixa folga de RAM e ao modelo local já residente; sem nova evidência, DeepSeek e visão não são promovidos para uso de produção.
+- Implantação adiada: `deploy` não tem permissão de leitura/sudo para `/root/api-gratis`; o acesso Docker permite inspeção, mas não dá uma rota de rollback segura do código/Compose. Não houve alteração remota.
+
 - [x] **PROVIDER-UI-01 — 2026-10-14:** Pop-up de provedores mantém o ciclo de Tab/Shift+Tab, fecha sem erro ao navegar e devolve o foco ao fechar. Regressão coberta pela suíte `qa/e2e/provider-connections.spec.ts`.
 
 - [ ] **CLOUD-PROVIDERS-01 — 2026-09-16:** Chave Groq já configurada, mas `GET /openai/v1/models` no endpoint oficial retorna HTTP 403 a partir do computador e da VPS .22. Resposta local: bloqueio de acesso/rede. Validar acesso e permissões antes de usar Groq como fallback operacional; não confundir chave presente com provider disponível.

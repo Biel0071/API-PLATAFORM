@@ -64,6 +64,7 @@ export interface ProviderAccountView {
   hasCredential: boolean;
   oauthNeedsReauth: boolean;
   health: { ok: boolean | null; checkedAt: string | null; latencyMs: number | null };
+  accountId?: string;
   accountTier?: string;
   defaultModel?: string;
 }
@@ -184,6 +185,9 @@ function view(account: AccountWithProvider): ProviderAccountView {
       checkedAt: account.healthCheckedAt?.toISOString() ?? null,
       latencyMs: account.healthLatencyMs,
     },
+    ...(account.provider.name === 'cloudflare' && typeof settings.accountId === 'string'
+      ? { accountId: settings.accountId }
+      : {}),
     accountTier: typeof settings.accountTier === 'string' ? settings.accountTier : undefined,
     defaultModel: typeof settings.defaultModel === 'string' ? settings.defaultModel : undefined,
   };
@@ -476,12 +480,19 @@ export async function syncLegacyProviderAccount(
   const data = {
     authMode: authMode as ProviderAccount['authMode'],
     baseUrl,
-    settings:
-      provider.name === 'cloudflare' && typeof settings.accountId === 'string'
+    settings: {
+      ...(typeof existingSettings.defaultModel === 'string'
+        ? { defaultModel: existingSettings.defaultModel }
+        : {}),
+      ...(typeof existingSettings.accountTier === 'string'
+        ? { accountTier: existingSettings.accountTier }
+        : {}),
+      ...(provider.name === 'cloudflare' && typeof settings.accountId === 'string'
         ? { accountId: settings.accountId }
         : provider.name === 'cloudflare' && typeof existingSettings.accountId === 'string'
           ? { accountId: existingSettings.accountId }
-          : {},
+          : {}),
+    },
     credentialEncrypted,
     oauthProvider: text(oauth.provider) ?? existing?.oauthProvider ?? null,
     oauthAccessTokenEncrypted,

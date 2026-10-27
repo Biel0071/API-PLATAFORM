@@ -27,7 +27,7 @@ vi.mock('../src/lib/prisma', () => ({
           provider: { name: 'openai', enabled: true, baseUrl: null, settings: {} },
           enabled: true,
           disconnectedAt: null,
-          updatedAt: new Date('2026-10-15T12:00:00.000Z'),
+          updatedAt: new Date(),
           credentialEncrypted: null,
           authMode: 'apiKey',
           settings: {},
@@ -48,7 +48,10 @@ vi.mock('../src/lib/prisma', () => ({
 }));
 vi.mock('../src/lib/redis', () => ({ redis: {} }));
 
-import { testProviderAccountHealth } from '../src/services/provider-account-runtime.service';
+import {
+  refreshConfiguredProviderAccountHealth,
+  testProviderAccountHealth,
+} from '../src/services/provider-account-runtime.service';
 
 describe('provider account runtime health checks', () => {
   beforeEach(() => {
@@ -85,5 +88,41 @@ describe('provider account runtime health checks', () => {
 
     expect(mocks.providerHealth).not.toHaveBeenCalled();
     expect(mocks.accountUpdate).not.toHaveBeenCalled();
+  });
+
+  it('discovers models on the selected account and stores the completed check timestamp', async () => {
+    const accountProvider = {
+      name: 'openai',
+      health: vi.fn(async () => ({ ok: true, latencyMs: 477 })),
+      models: vi.fn(async () => [{ id: 'model-a' }, { id: 'model-b' }]),
+    };
+    const registry = { has: vi.fn(() => true), get: vi.fn(() => accountProvider), register: vi.fn(), setAccountPool: vi.fn() };
+    const legacyRegistry = { has: vi.fn(() => false), get: vi.fn(), register: vi.fn(), setAccountPool: vi.fn() };
+    mocks.createRegistryFromEnv.mockReset().mockReturnValueOnce(legacyRegistry).mockReturnValueOnce(registry);
+    mocks.buildProviderAccountEnvironments.mockReset().mockResolvedValue([{ accountId: 'account-1', providerName: 'openai', env: {} }]);
+    mocks.accountUpdate.mockResolvedValue({});
+
+    await expect(testProviderAccountHealth('account-1')).resolves.toMatchObject({ ok: true, latencyMs: 477, modelCount: 2 });
+    expect(accountProvider.health).toHaveBeenCalledOnce();
+    expect(accountProvider.models).toHaveBeenCalledOnce();
+    expect(mocks.accountUpdate.mock.calls[0][0].data.healthCheckedAt.getTime()).toBeGreaterThanOrEqual(Date.now() - 1000);
+  });
+
+  it('refreshes enabled configured accounts sequentially through health and model discovery', async () => {
+    const accountProvider = {
+      name: 'openai',
+      health: vi.fn(async () => ({ ok: true, latencyMs: 9 })),
+      models: vi.fn(async () => [{ id: 'model-a' }]),
+    };
+    const registry = { has: vi.fn(() => true), get: vi.fn(() => accountProvider), register: vi.fn(), setAccountPool: vi.fn() };
+    mocks.createRegistryFromEnv.mockReset().mockReturnValue(registry);
+    mocks.buildProviderAccountEnvironments.mockReset().mockResolvedValue([
+      { accountId: 'account-1', providerName: 'openai', env: {} },
+    ]);
+    mocks.accountUpdate.mockResolvedValue({});
+
+    await expect(refreshConfiguredProviderAccountHealth()).resolves.toEqual(new Set(['openai']));
+    expect(accountProvider.health).toHaveBeenCalledOnce();
+    expect(accountProvider.models).toHaveBeenCalledOnce();
   });
 });

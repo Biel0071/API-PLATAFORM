@@ -71,6 +71,19 @@ export class UsageService {
   private async persist(record: UsageRecord): Promise<void> {
     const cost = await this.estimateCost(record.provider, record.model, record.tokens);
     const totalTokens = record.tokens?.total ?? (record.tokens?.prompt ?? 0) + (record.tokens?.completion ?? 0);
+    const hasTokenCount = Number.isSafeInteger(totalTokens) && totalTokens >= 0 && Boolean(
+      record.tokens?.total !== undefined || (record.tokens?.prompt !== undefined && record.tokens?.completion !== undefined),
+    );
+    const isInternalEstimate = record.provider === 'laya' || record.provider === 'jev';
+    const tokenUsageSource = record.cached
+      ? 'cache'
+      : !hasTokenCount
+        ? 'unknown'
+        : isInternalEstimate
+          ? 'estimated'
+          : 'observed';
+    const observedTokens = tokenUsageSource === 'observed' ? BigInt(totalTokens) : 0n;
+    const estimatedTokens = tokenUsageSource === 'estimated' ? BigInt(totalTokens) : 0n;
 
     await prisma.requestLog.create({
       data: {
@@ -86,6 +99,7 @@ export class UsageService {
         promptTokens: record.tokens?.prompt ?? 0,
         completionTokens: record.tokens?.completion ?? 0,
         totalTokens,
+        tokenUsageSource,
         cost,
       },
     });
@@ -110,12 +124,20 @@ export class UsageService {
           requests: 1,
           cachedHits: record.cached ? 1 : 0,
           totalTokens: BigInt(totalTokens),
+          observedTokens,
+          observedTokenRequests: tokenUsageSource === 'observed' ? 1 : 0,
+          estimatedTokens,
+          estimatedTokenRequests: tokenUsageSource === 'estimated' ? 1 : 0,
           cost,
         },
         update: {
           requests: { increment: 1 },
           cachedHits: { increment: record.cached ? 1 : 0 },
           totalTokens: { increment: BigInt(totalTokens) },
+          observedTokens: { increment: observedTokens },
+          observedTokenRequests: { increment: tokenUsageSource === 'observed' ? 1 : 0 },
+          estimatedTokens: { increment: estimatedTokens },
+          estimatedTokenRequests: { increment: tokenUsageSource === 'estimated' ? 1 : 0 },
           cost: { increment: cost },
         },
       });

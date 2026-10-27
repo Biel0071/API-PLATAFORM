@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,12 @@ import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import {
   audioSchema,
+  audioConversationSchema,
+  audioSpeechSchema,
+  audioAiSpeechSchema,
+  audioTransformSchema,
+  audioTranscriptionSchema,
+  voiceSampleSchema,
   chatSchema,
   ComfyUIProvider,
   embedSchema,
@@ -36,6 +42,7 @@ import { providerAttemptTracker } from '../../services/provider-attempt.service'
 import { ExecutionGateway } from '../../services/execution-gateway.service';
 import { enqueue, enqueueAndWait, enqueueWithTiming, QueueName, queueStats, queueTiming } from '../../services/queue.service';
 import { prisma } from '../../lib/prisma';
+import { isProviderProbeExcluded } from '../../services/provider-probe-policy';
 import { env } from '../../config/env';
 import { persistImageResponse } from '../../services/image-storage.service';
 import { populationSummary, queueEntryPopulation, queuePopulationSummary } from '../../services/population.service';
@@ -66,6 +73,13 @@ function resolveJobQueue(type: string, payload: Record<string, unknown>): QueueN
   }
   return type as QueueName;
 }
+function decodeAudioBytes(value: string): Buffer | undefined {
+  const encoded = value.replace(/^data:audio\/[\w.+-]+;base64,/i, '');
+  if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 === 1) return undefined;
+  const bytes = Buffer.from(encoded, 'base64');
+  if (!bytes.length || bytes.length > 18 * 1024 * 1024 || bytes.toString('base64').replace(/=+$/, '') !== encoded.replace(/=+$/, '')) return undefined;
+  return bytes;
+}
 let activeSynchronousText = 0;
 function acquireSynchronousTextSlot(): (() => void) | undefined {
   if (activeSynchronousText >= env.SYNC_TEXT_CONCURRENCY) return undefined;
@@ -87,7 +101,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
     '/text': 'text', '/chat': 'chat', '/decide': 'chat', '/image': 'image', '/image-to-image': 'image',
     '/video-to-image': 'image', '/remove-background': 'image', '/inpaint': 'image',
     '/outpaint': 'image', '/controlnet': 'image', '/upscale': 'image', '/vision': 'vision',
-    '/embed': 'embed', '/embedding': 'embed', '/ocr': 'ocr', '/video': 'video', '/workflow': 'workflow',
+    '/embed': 'embed', '/embedding': 'embed', '/ocr': 'ocr', '/video': 'video', '/workflow': 'workflow', '/audio': 'audio',
     '/config': 'admin', '/sync/cluster': 'text', '/sync/heartbeat': 'text',
     '/queue/enqueue': 'text', '/queue/status': 'text', '/queue/stats': 'text',
     '/comfyui/queue': 'image', '/comfyui/progress/:promptId': 'image', '/comfyui/cancel': 'image',
@@ -101,7 +115,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
     const routePath = routeUrl?.replace(/^\/v1/, '');
     const typeToScope = (type: string | undefined, payload?: Record<string, unknown>) =>
       type === 'ocr' ? 'ocr' : type === 'embedding' ? 'embed' : type === 'image' ? 'image' :
-        type === 'vision' || payload?.task === 'vision' ? 'vision' : 'text';
+      type === 'vision' || payload?.task === 'vision' ? 'vision' : type === 'audio' ? 'audio' : 'text';
     const hasScope = (scope: string) => req.auth?.scopes.includes('*') || req.auth?.scopes.includes(scope);
     const isOperationalCoreRoute = routePath && (
       routePath.startsWith('/reverse/') ||
@@ -135,7 +149,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       }
       return;
     }
-    const required = routePath ? scopeByRoute[routePath] : undefined;
+    const required = routePath?.startsWith('/audio/') ? 'audio' : routePath ? scopeByRoute[routePath] : undefined;
     if (!required || hasScope(required)) return;
     return reply.code(403).send(fail('INSUFFICIENT_SCOPE', `A API key nao possui o escopo ${required}`));
   });
@@ -610,9 +624,142 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
     return { success: true, provider: 'comfyui', providerAccountId: selection.providerAccountId, model: result.model, executionTime: Date.now() - started, cached: false, tokens: {}, result: result.result };
   });
 
-  app.post('/audio', { config: rlAudio, schema: { tags: ['v1'] } }, async (req) => {
+  app.post('/audio', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
     const body = audioSchema.parse(req.body);
-    return execute('audio', body, (p) => p.audio(body), { tenantId: req.auth?.tenantId, projectId: req.auth?.projectId, apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes });
+    if (body.type === 'stt' && /^https?:\/\//i.test(body.data)) return reply.code(400).send(fail('AUDIO_URL_DISABLED', 'Envie o arquivo em base64; URLs externas nao sao aceitas'));
+    const operation = body.type === 'stt' ? 'transcribe' : 'speech';
+    const engine = (process.env.AUDIO_ENGINE_URL ?? 'http://audio-engine:8000').replace(/\/$/, '');
+    let response: Response;
+    try {
+      response = await fetch(`${engine}/${operation}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body.type === 'stt'
+          ? { audio: body.data, language: body.language ?? 'pt' }
+          : { text: body.data, voice: body.model ?? 'pf_dora' }),
+        signal: AbortSignal.timeout(Number(process.env.AUDIO_ENGINE_TIMEOUT_MS ?? 240_000)),
+      });
+    } catch { return reply.code(503).send(fail('LOCAL_AUDIO_UNAVAILABLE', 'Engine de audio local indisponivel; a gravacao nao foi enviada a provedores externos')); }
+    if (!response.ok) return reply.code(response.status === 422 ? 400 : 503).send(fail('LOCAL_AUDIO_FAILED', `Engine de audio local retornou HTTP ${response.status}`));
+    const result = await response.json();
+    return { success: true, provider: 'local-audio', model: body.type === 'stt' ? 'faster-whisper' : 'kokoro', result };
+  });
+
+  const audioJob = async (req: any, reply: any, operation: string, payload: Record<string, unknown>) => {
+    const input = { ...payload };
+    const projectId = payload.projectId as string | undefined ?? req.auth?.projectId;
+    if (projectId && !await prisma.project.findFirst({ where: { id: projectId, tenantId: req.auth!.tenantId }, select: { id: true } })) return reply.code(404).send(fail('PROJECT_NOT_FOUND', 'Projeto nao encontrado'));
+    let transientFile: string | undefined;
+    if (typeof input.audio === 'string') {
+      const bytes = decodeAudioBytes(input.audio);
+      if (!bytes) return reply.code(400).send(fail('INVALID_AUDIO', 'Arquivo base64 invalido ou maior que 18 MiB'));
+      const audioRoot = process.env.AUDIO_STORAGE_PATH ?? (process.env.NODE_ENV === 'production' ? '/app/storage/audio' : path.join(tmpdir(), 'api-platform-audio'));
+      transientFile = path.join(audioRoot, 'temp', `${randomUUID()}.audio`);
+      await mkdir(path.dirname(transientFile), { recursive: true });
+      await writeFile(transientFile, bytes, { flag: 'wx' });
+      if (bytes.length > 5 * 1024 * 1024) delete input.audio; else input.audio = bytes.toString('base64');
+      input.filePath = transientFile;
+    }
+    let queued;
+    try { queued = await enqueueWithTiming('audio', { operation, ...input, cache: false }, {
+      tenantId: req.auth?.tenantId, projectId,
+      apiKeyId: req.auth?.apiKeyId, scopes: req.auth?.scopes,
+    }); } catch (error) { if (transientFile) await unlink(transientFile).catch(() => undefined); throw error; }
+    return reply.code(202).send({ success: true, ...queued, status: 'waiting', execution: 'async', ...queueEntryPopulation(queued.queue) });
+  };
+  app.post('/audio/transcriptions', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const body = audioTranscriptionSchema.parse(req.body);
+    return audioJob(req, reply, 'transcribe', { audio: body.audio, language: body.language, projectId: body.projectId });
+  });
+  app.post('/audio/speech', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const body = audioSpeechSchema.parse(req.body);
+    return audioJob(req, reply, 'speech', { text: body.text, voice: body.voice, profile: body.profile, speed: body.speed, projectId: body.projectId });
+  });
+  app.post('/audio/ai-speech', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const body = audioAiSpeechSchema.parse(req.body);
+    return audioJob(req, reply, 'ai-speech', { prompt: body.prompt, system: body.system, voice: body.voice, profile: body.profile, speed: body.speed, provider: body.provider, model: body.model, projectId: body.projectId });
+  });
+  app.post('/audio/transform', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const body = audioTransformSchema.parse(req.body);
+    return audioJob(req, reply, 'transform', { audio: body.audio, voice: body.voice, profile: body.profile, speed: body.speed, language: body.language, projectId: body.projectId });
+  });
+  app.post('/audio/conversations', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const body = audioConversationSchema.parse(req.body);
+    return audioJob(req, reply, 'conversation', { audio: body.audio, prompt: body.prompt, language: body.language, voice: body.voice, projectId: body.projectId });
+  });
+  app.get('/audio/health', { schema: { tags: ['v1', 'audio'] } }, async () => {
+    const engine = (process.env.AUDIO_ENGINE_URL ?? 'http://audio-engine:8000').replace(/\/$/, '');
+    try {
+      const response = await fetch(`${engine}/health`, { signal: AbortSignal.timeout(3_000) });
+      if (!response.ok) return { success: true, available: false, status: 'unavailable' };
+      const health = await response.json() as Record<string, unknown>;
+      return { success: true, available: health.status === 'ready', status: health.status, sttLoaded: health.sttLoaded, ttsFilesPresent: health.ttsFilesPresent, stt: health.stt, tts: health.tts, voices: health.voices, profiles: health.profiles };
+    } catch { return { success: true, available: false, status: 'unavailable' }; }
+  });
+
+  app.get('/audio/voices', { schema: { tags: ['v1', 'audio'] } }, async (req) => {
+    const query = z.object({ projectId: z.string().optional() }).parse(req.query);
+    if (req.auth?.projectId && query.projectId && query.projectId !== req.auth.projectId) throw new ProviderError('gateway', 'project forbidden', 'PROJECT_FORBIDDEN', 403);
+    const projectId = query.projectId ?? req.auth?.projectId;
+    const voices = await prisma.audioVoice.findMany({ where: { tenantId: req.auth!.tenantId, ...(projectId ? { projectId } : {}) }, select: { id: true, name: true, projectId: true, consentAt: true, createdAt: true }, orderBy: { createdAt: 'desc' } });
+    return { success: true, voices };
+  });
+  app.post('/audio/voices', { config: rlAudio, schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const body = voiceSampleSchema.parse(req.body);
+    const projectId = body.projectId ?? req.auth?.projectId;
+    if (projectId && !await prisma.project.findFirst({ where: { id: projectId, tenantId: req.auth!.tenantId }, select: { id: true } })) return reply.code(404).send(fail('PROJECT_NOT_FOUND', 'Projeto nao encontrado'));
+    const bytes = decodeAudioBytes(body.audio);
+    if (!bytes) return reply.code(400).send(fail('INVALID_AUDIO', 'Amostra base64 invalida ou maior que 18 MiB'));
+    const id = randomUUID();
+    const audioRoot = process.env.AUDIO_STORAGE_PATH ?? (process.env.NODE_ENV === 'production' ? '/app/storage/audio' : path.join(tmpdir(), 'api-platform-audio'));
+    const filePath = path.join(audioRoot, 'voices', `${id}.audio`);
+    const mimeType = /^data:(audio\/[\w.+-]+);base64,/i.exec(body.audio)?.[1] ?? 'application/octet-stream';
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, bytes, { flag: 'wx' });
+    try {
+      const voice = await prisma.audioVoice.create({ data: { id, tenantId: req.auth!.tenantId, projectId, name: body.name, filePath, mimeType, consentAt: new Date() }, select: { id: true, name: true, projectId: true, consentAt: true, createdAt: true } });
+      return reply.code(201).send({ success: true, voice });
+    } catch (error) { await unlink(filePath).catch(() => undefined); throw error; }
+  });
+  app.get('/audio/voices/:id/sample', { schema: { tags: ['v1', 'audio'] } }, async (req: any, reply) => {
+    const voice = await prisma.audioVoice.findFirst({ where: { id: req.params.id, tenantId: req.auth!.tenantId, ...(req.auth?.projectId ? { projectId: req.auth.projectId } : {}) } });
+    if (!voice) return reply.code(404).send(fail('VOICE_NOT_FOUND', 'Amostra nao encontrada'));
+    const bytes = await readFile(voice.filePath).catch(() => undefined);
+    if (!bytes) return reply.code(404).send(fail('VOICE_SAMPLE_MISSING', 'Arquivo de amostra nao encontrado'));
+    return reply.type(voice.mimeType).header('content-disposition', 'inline').send(bytes);
+  });
+  app.delete('/audio/voices/:id', { schema: { tags: ['v1', 'audio'] } }, async (req: any, reply) => {
+    const voice = await prisma.audioVoice.findFirst({ where: { id: req.params.id, tenantId: req.auth!.tenantId, ...(req.auth?.projectId ? { projectId: req.auth.projectId } : {}) } });
+    if (!voice) return reply.code(404).send(fail('VOICE_NOT_FOUND', 'Voz nao encontrada'));
+    await prisma.audioVoice.delete({ where: { id: voice.id } });
+    await unlink(voice.filePath).catch(() => undefined);
+    return { success: true };
+  });
+
+  app.get('/audio/assets/:id', { schema: { tags: ['v1', 'audio'] } }, async (req: any, reply) => {
+    const asset = await prisma.audioAsset.findFirst({ where: { id: req.params.id, tenantId: req.auth!.tenantId, ...(req.auth?.projectId ? { projectId: req.auth.projectId } : {}) } });
+    if (!asset) return reply.code(404).send(fail('AUDIO_ASSET_NOT_FOUND', 'Audio nao encontrado'));
+    let bytes = await readFile(asset.filePath).catch(() => undefined);
+    if (!bytes && asset.jobId) {
+      const jobLog = await prisma.job.findUnique({ where: { id: asset.jobId }, select: { result: true } }).catch(() => null);
+      const r = jobLog?.result as any;
+      const b64 = r?.result?.audioBase64 ?? r?.result?.speech?.audioBase64 ?? r?.audioBase64;
+      if (typeof b64 === 'string' && b64.length > 0) bytes = Buffer.from(b64, 'base64');
+    }
+    if (!bytes) return reply.code(404).send(fail('AUDIO_ASSET_MISSING', 'Arquivo de audio nao encontrado'));
+    return reply.type(asset.mimeType).header('content-disposition', 'inline').send(bytes);
+  });
+  app.get('/audio/assets', { schema: { tags: ['v1', 'audio'] } }, async (req, reply) => {
+    const query = z.object({ projectId: z.string().optional() }).parse(req.query);
+    if (req.auth?.projectId && query.projectId && query.projectId !== req.auth.projectId) return reply.code(403).send(fail('PROJECT_FORBIDDEN', 'Projeto nao pertence a esta chave'));
+    const assets = await prisma.audioAsset.findMany({ where: { tenantId: req.auth!.tenantId, projectId: query.projectId ?? req.auth?.projectId }, select: { id: true, projectId: true, kind: true, mimeType: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 100 });
+    return { success: true, assets };
+  });
+  app.delete('/audio/assets/:id', { schema: { tags: ['v1', 'audio'] } }, async (req: any, reply) => {
+    const asset = await prisma.audioAsset.findFirst({ where: { id: req.params.id, tenantId: req.auth!.tenantId, ...(req.auth?.projectId ? { projectId: req.auth.projectId } : {}) } });
+    if (!asset) return reply.code(404).send(fail('AUDIO_ASSET_NOT_FOUND', 'Audio nao encontrado'));
+    await prisma.audioAsset.delete({ where: { id: asset.id } });
+    await unlink(asset.filePath).catch(() => undefined);
+    return { success: true };
   });
 
   app.post('/mission', { config: rlMission, schema: { tags: ['v1'] } }, async (req, reply) => {
@@ -686,31 +833,43 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
   app.get('/providers', { schema: { tags: ['v1'] } }, async () => {
     const results = await Promise.all(
       registry.list().map(async (p) => {
+        if (isProviderProbeExcluded(p.name)) {
+          return { name: p.name, health: null, models: [], probe: 'excluded', calls: null, tokens: null, cost: null };
+        }
         const health = await p.health();
         let models: string[] = [];
         try { models = (await p.models()).map((m) => m.id); } catch { /* ignore */ }
         let realRequests = 0;
-        let realTokens = 0;
+        let observedTokens = 0;
+        let estimatedTokens = 0;
+        let unreportedTokenCalls = 0;
         let realCost = 0;
         let realLatency = health.latencyMs ?? 0;
+        let requestDurationTotal = 0;
         let healthScore = health.ok ? 1.0 : 0.0;
 
         try {
           const since = new Date(Date.now() - 24 * 3600 * 1000);
-          const stats = await prisma.requestLog.aggregate({
-            where: { provider: p.name, createdAt: { gte: since } },
+          const stats = await prisma.requestLog.groupBy({
+            by: ['tokenUsageSource'],
+            where: { provider: p.name, createdAt: { gte: since }, cached: false },
             _count: { id: true },
             _sum: { totalTokens: true, cost: true },
             _avg: { durationMs: true },
           });
-          realRequests = stats._count.id ?? 0;
-          realTokens = stats._sum.totalTokens ?? 0;
-          realCost = Number((stats._sum.cost ?? 0).toFixed(4));
-          if (stats._avg.durationMs) {
-            realLatency = Math.round(stats._avg.durationMs);
+          for (const row of stats) {
+            const calls = row._count.id ?? 0;
+            realRequests += calls;
+            realCost += row._sum.cost ?? 0;
+            requestDurationTotal += (row._avg.durationMs ?? 0) * calls;
+            if (row.tokenUsageSource === 'observed') observedTokens += row._sum.totalTokens ?? 0;
+            else if (row.tokenUsageSource === 'estimated') estimatedTokens += row._sum.totalTokens ?? 0;
+            else if (row.tokenUsageSource === 'unknown') unreportedTokenCalls += calls;
           }
+          if (realRequests > 0) realLatency = Math.round(requestDurationTotal / realRequests);
+          realCost = Number(realCost.toFixed(4));
           const errorsCount = await prisma.requestLog.count({
-            where: { provider: p.name, createdAt: { gte: since }, success: false },
+            where: { provider: p.name, createdAt: { gte: since }, cached: false, success: false },
           });
           if (realRequests > 0) {
             healthScore = Math.max(0, Math.round((1 - errorsCount / realRequests) * 100) / 100);
@@ -722,13 +881,19 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
           capabilities: p.capabilities,
           health: health,
           status: health.ok ? 'ONLINE' : 'OFFLINE',
+          healthLatencyMs: health.latencyMs ?? null,
           models,
           latency: realLatency,
           requests: realRequests,
-          tokens: realTokens,
+          tokens: observedTokens,
+          observedTokens,
+          estimatedTokens,
+          unreportedTokenCalls,
           fallback: true,
           score: healthScore,
           cost: realCost,
+          estimatedCost: realCost,
+          costSource: 'estimated',
         };
       }),
     );

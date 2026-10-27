@@ -29,8 +29,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !user.active || !(await bcrypt.compare(body.password, user.passwordHash))) {
       return reply.code(401).send(fail('INVALID_CREDENTIALS', 'Email ou senha invalidos'));
     }
+    const defaultTenant = user.tenantId ? null : await prisma.tenant.findUnique({ where: { slug: 'default' }, select: { id: true } });
     const token = app.jwt.sign(
-      { sub: user.id, email: user.email, role: user.role },
+      { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId ?? defaultTenant?.id },
       { expiresIn: '12h' },
     );
     await prisma.auditLog.create({

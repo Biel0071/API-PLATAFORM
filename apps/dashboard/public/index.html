@@ -4,16 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>API Platform — Enterprise Gateway</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>" />
-  <link rel="stylesheet" href="app.css?v=a3bc63228dad121c" />
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/api-platform.svg" />
+  <link rel="stylesheet" href="app.css?v=0af5151d272ff6fc" />
 </head>
 <body>
   <!-- Tela de Login -->
   <div id="login" class="login hidden">
     <form id="login-form" class="login-card">
       <div class="login-brand">
-        <div class="login-mark" aria-hidden="true">
-          <span style="font-size: 1.6rem; color: #fff;">⚡</span>
+        <div class="login-mark">
+          <img src="/assets/brand/api-platform.svg" alt="" />
+          <span class="brand-orbit" aria-hidden="true"></span>
         </div>
         <div class="badge ok login-badge">ENTERPRISE GATEWAY</div>
         <h1>API Platform</h1>
@@ -44,21 +45,25 @@
 
     <aside class="sidebar" id="sidebar">
       <h2>
-        <span class="brand-glow">⚡</span>
+        <span class="brand-glow">
+          <img src="/assets/brand/api-platform.svg" alt="" />
+          <span class="brand-orbit" aria-hidden="true"></span>
+        </span>
         <span>API Platform</span>
         <span class="brand-tag">PRO</span>
       </h2>
       <nav class="nav-groups">
         <div class="nav-category">Principal</div>
-        <a class="nav-primary" href="#/home"><span>▦</span> Visão geral</a>
-        <a class="nav-primary" href="#/projects"><span>◫</span> Projetos</a>
-        <a class="nav-primary" href="#/providers"><span>✦</span> Provedores</a>
-        <a class="nav-primary" href="#/keys"><span>🔑</span> API Keys</a>
-        <a class="nav-primary" href="#/playground"><span>⚡</span> Playground</a>
-        <a class="nav-primary" href="#/mission"><span>🎯</span> Mission Viewer</a>
-        <a class="nav-primary" href="#/logs"><span>≡</span> Logs</a>
+        <a class="nav-primary" href="#/home"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg></span> Visão geral</a>
+        <a class="nav-primary" href="#/projects"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Projetos</a>
+        <a class="nav-primary" href="#/providers"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg></span> Provedores</a>
+        <a class="nav-primary" href="#/keys"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg></span> API Keys</a>
+        <a class="nav-primary" href="#/playground"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg></span> Playground</a>
+        <a class="nav-primary" href="#/audio"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg></span> Estúdio de Áudio</a>
+        <a class="nav-primary" href="#/mission"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg></span> Mission Viewer</a>
+        <a class="nav-primary" href="#/logs"><span><svg class="nav-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></span> Logs</a>
         <section class="nav-group" data-group="generation">
-          <button class="nav-group-toggle"><span>Geração e modelos</span><b>⌄</b></button>
+          <button class="nav-group-toggle"><span><svg class="nav-svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg> Geração e modelos</span><b aria-hidden="true"><svg class="nav-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></b></button>
           <div class="nav-submenu">
             <a href="#/models">Modelos e custos</a>
             <a href="#/prompts">Biblioteca de prompts</a>
@@ -78,14 +83,14 @@
 
         <div class="nav-category">Infraestrutura</div>
         <section class="nav-group" data-group="system">
-          <button class="nav-group-toggle"><span>⚙ System Status</span><b>⌄</b></button>
+          <button class="nav-group-toggle"><span><svg class="nav-svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Status do Sistema</span><b aria-hidden="true"><svg class="nav-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></b></button>
           <div class="nav-submenu">
             <a href="#/health">Health Check</a>
             <a href="#/workers">Workers</a>
             <a href="#/queues">Filas e jobs</a>
             <a href="#/usage">Tokens e custos</a>
             <a href="#/cache">Cache</a>
-            <a href="#/metrics">Prometheus Metrics</a>
+            <a href="#/metrics">Métricas Prometheus</a>
             <a href="#/icp">Cluster local</a>
             <a href="#/runtime">Runtime da API</a>
           </div>
@@ -93,18 +98,18 @@
 
         <div class="nav-category">Gestão</div>
         <section class="nav-group" data-group="admin">
-          <button class="nav-group-toggle"><span>🛡️ Admin</span><b>⌄</b></button>
+          <button class="nav-group-toggle"><span><svg class="nav-svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> Administração</span><b aria-hidden="true"><svg class="nav-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></b></button>
           <div class="nav-submenu">
             <a href="#/tenants">Tenants</a>
-            <a href="#/users">Users</a>
-            <a href="#/settings">Settings</a>
+            <a href="#/users">Usuários</a>
+            <a href="#/settings">Configurações</a>
             <a href="#/security">Segurança e auditoria</a>
             <a href="#/backup">Backup</a>
           </div>
         </section>
 
         <section class="nav-group" data-group="integrations">
-          <button class="nav-group-toggle"><span>Integrações opcionais</span><b>⌄</b></button>
+          <button class="nav-group-toggle"><span><svg class="nav-svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg> Integrações opcionais</span><b aria-hidden="true"><svg class="nav-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></b></button>
           <div class="nav-submenu">
             <a href="#/base-url">URL da plataforma</a>
             <a href="#/sdk">SDKs</a>
@@ -131,11 +136,11 @@
       <!-- Barra Superior com Telemetria e Controles Rápidos -->
       <header class="top-header">
         <div class="header-left">
-          <button id="sidebar-toggle" class="btn-icon mobile-only" aria-label="Abrir menu de navegação">☰</button>
+          <button id="sidebar-toggle" class="btn-icon mobile-only" aria-label="Abrir menu de navegação"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
           <div class="top-breadcrumb" id="top-breadcrumb">
             <span class="bc-section">API Platform</span>
             <span class="bc-sep">/</span>
-            <span class="bc-page" id="bc-page-title">Visao Geral do Sistema</span>
+            <span class="bc-page" id="bc-page-title">Visão Geral do Sistema</span>
           </div>
         </div>
         <div class="header-right">
@@ -144,10 +149,11 @@
             <span class="status-label">API independente</span>
           </div>
           <button id="toggle-sound" class="btn-icon sound-btn" title="Feedback Sonoro dos Cliques (Alternar)">
-            <span id="sound-icon">🔊</span>
+            <span id="sound-icon"><svg class="icon-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg></span>
           </button>
           <a href="#/playground" class="header-quick-action" title="Abrir Playground de Inferência">
-            <span>⚡ Playground</span>
+            <svg class="icon-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            <span>Playground</span>
           </a>
         </div>
       </header>
@@ -167,6 +173,6 @@
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
   </div>
 
-  <script src="app.js?v=a3bc63228dad121c"></script>
+  <script src="app.js?v=0af5151d272ff6fc"></script>
 </body>
 </html>

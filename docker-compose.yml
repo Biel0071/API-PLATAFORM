@@ -57,6 +57,8 @@ services:
       # Dentro do container, "localhost" nao alcanca servicos do host:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
       COMFYUI_BASE_URL: ${COMFYUI_BASE_URL_DOCKER:-http://host.docker.internal:8188}
+      AUDIO_ENGINE_URL: http://audio-engine:8000
+      AUDIO_STORAGE_PATH: /app/storage/audio
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     depends_on:
@@ -91,6 +93,8 @@ services:
       REDIS_URL: redis://redis:6379
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
       COMFYUI_BASE_URL: ${COMFYUI_BASE_URL_DOCKER:-http://host.docker.internal:8188}
+      AUDIO_ENGINE_URL: http://audio-engine:8000
+      AUDIO_STORAGE_PATH: /app/storage/audio
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
@@ -110,6 +114,27 @@ services:
       retries: 4
       start_period: 15s
     stop_grace_period: 60s
+
+  audio-engine:
+    build:
+      context: ./docker/audio-engine
+      dockerfile: Dockerfile
+    profiles: [audio]
+    restart: unless-stopped
+    mem_limit: ${MEM_AUDIO_ENGINE:-1200m}
+    cpus: ${AUDIO_ENGINE_CPUS:-1}
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      AUDIO_MODEL_DIR: /models
+    volumes:
+      - audio-models:/models
+    # Sem portas publicadas: somente API/worker na rede privada do Compose.
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3)); raise SystemExit(0 if d["status"] == "ready" else 1)']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   dashboard:
     build:
@@ -213,3 +238,4 @@ volumes:
   image-storage:
   promdata:
   grafanadata:
+  audio-models:

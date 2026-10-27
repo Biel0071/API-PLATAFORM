@@ -1,5 +1,7 @@
 import { registry } from './ai.service';
 import { logger } from '../lib/logger';
+import { isProviderProbeExcluded } from './provider-probe-policy';
+import { refreshConfiguredProviderAccountHealth } from './provider-account-runtime.service';
 
 const HEALTH_CHECK_INTERVAL_MS = Math.max(60_000, Number(process.env.PROVIDER_HEALTH_INTERVAL_MS || 120_000));
 let healthCheckTimer: NodeJS.Timeout | null = null;
@@ -11,7 +13,14 @@ export async function refreshProviderHealth() {
   if (checking) return;
   checking = true;
   try {
-    await Promise.all(registry.list().map(async (provider) => {
+    let accountProviders = new Set<string>();
+    try { accountProviders = await refreshConfiguredProviderAccountHealth(); } catch { /* account store may be unavailable */ }
+    for (const provider of registry.list()) {
+      if (isProviderProbeExcluded(provider.name)) {
+        providerHealthState.delete(provider.name);
+        continue;
+      }
+      if (accountProviders.has(provider.name)) continue;
       const start = Date.now();
       let timer: NodeJS.Timeout | undefined;
       try {
@@ -23,7 +32,7 @@ export async function refreshProviderHealth() {
       } catch {
         providerHealthState.set(provider.name, { status: 'offline', latency: Date.now() - start, lastCheck: Date.now() });
       } finally { clearTimeout(timer); }
-    }));
+    }
   } finally { checking = false; }
 }
 

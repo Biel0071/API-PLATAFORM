@@ -115,10 +115,20 @@
   try { navState = JSON.parse(localStorage.getItem('apiplatform_nav') || '{}') || {}; } catch { navState = {}; }
   document.querySelectorAll('.nav-group').forEach((group) => {
     const name = group.dataset.group;
-    group.classList.toggle('open', Boolean(navState[name]));
-    group.querySelector('.nav-group-toggle').addEventListener('click', () => {
+    const toggle = group.querySelector('.nav-group-toggle');
+    const submenu = group.querySelector('.nav-submenu');
+    if (submenu) {
+      submenu.id = `nav-${name}-submenu`;
+      toggle.setAttribute('aria-controls', submenu.id);
+    }
+    const setExpanded = (expanded) => {
+      group.classList.toggle('open', expanded);
+      toggle.setAttribute('aria-expanded', String(expanded));
+    };
+    setExpanded(Boolean(navState[name]));
+    toggle.addEventListener('click', () => {
       navState[name] = !group.classList.contains('open');
-      group.classList.toggle('open', navState[name]);
+      setExpanded(navState[name]);
       localStorage.setItem('apiplatform_nav', JSON.stringify(navState));
     });
   });
@@ -176,7 +186,9 @@
 
   function updateSoundButton() {
     const icon = $('#sound-icon');
-    if (icon) icon.textContent = soundEnabled ? '🔊' : '🔇';
+    if (icon) icon.innerHTML = soundEnabled
+      ? '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>'
+      : '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="m17 9 5 6m0-6-5 6"/></svg>';
     const btn = $('#toggle-sound');
     if (btn) btn.title = soundEnabled ? 'Som dos cliques ativado (Clique para silenciar)' : 'Som dos cliques silenciado (Clique para ativar)';
   }
@@ -192,8 +204,12 @@
     }
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;
-    const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
-    el.innerHTML = '<span style="font-size:1.15rem; font-weight:800; line-height:1; color:' + (type === 'success' ? '#34d399' : type === 'error' ? '#f87171' : '#60a5fa') + ';">' + icon + '</span><span>' + esc(message) + '</span>';
+    const icon = type === 'success'
+      ? '<path d="m5 12 4 4L19 6"/>'
+      : type === 'error'
+        ? '<path d="m18 6-12 12M6 6l12 12"/>'
+        : '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>';
+    el.innerHTML = '<svg class="ui-icon toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icon + '</svg><span>' + esc(message) + '</span>';
     container.appendChild(el);
     playClickSound(type === 'error' ? 'error' : 'success');
     setTimeout(() => {
@@ -258,14 +274,140 @@
 
   const badge = (ok, textOk = 'online', textErr = 'offline') =>
     ok ? `<span class="badge ok">${textOk}</span>` : `<span class="badge err">${textErr}</span>`;
+  const favoriteIcon = '<svg class="ui-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2.8 2.83 5.74 6.33.92-4.58 4.47 1.08 6.31L12 17.26l-5.66 2.98 1.08-6.31-4.58-4.47 6.33-.92L12 2.8Z"/></svg>';
+
+  const providerIdentity = (name) => {
+    const id = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const supported = new Set(['anthropic', 'cloudflare', 'comfyui', 'forge', 'gemini', 'groq', 'huggingface', 'invokeai', 'lmstudio', 'ollama', 'openai', 'openrouter', 'xai']);
+    const mark = supported.has(id)
+      ? `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${id}.svg" width="24" height="24" alt="" loading="lazy" /></span>`
+      : '';
+    return `<span class="provider-identity">${mark}<strong>${esc(name)}</strong></span>`;
+  };
 
   const table = (headers, rows) => {
-    const emptyRow = `<tr><td colspan="${headers.length}" class="table-empty-cell"><span class="table-empty-icon">📂</span>Nenhum registro encontrado</td></tr>`;
+    const emptyRow = `<tr><td colspan="${headers.length}" class="table-empty-cell"><svg class="table-empty-icon ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H10l2 2h7.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/><path d="M3 10h18"/></svg>Nenhum registro encontrado</td></tr>`;
     return `<div class="table-container"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>` +
            `<tbody>${rows.length ? rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('') : emptyRow}</tbody></table></div>`;
   };
   const fmtDate = (d) => (d ? new Date(d).toLocaleString('pt-BR') : '—');
   const fmtMs = (ms) => (ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms');
+  const fmtUptime = (sec) => {
+    const s = Math.max(0, Math.floor(Number(sec || 0)));
+    if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+    if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+    if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${s}s`;
+  };
+  const renderTelemetryCharts = (dailySeries = [], providerRows = [], summary = {}) => {
+    const series = (dailySeries || []).slice(-12);
+    const maxTokens = Math.max(10, ...series.map((d) => Number(d.observedTokens || 0) + Number(d.estimatedTokens || 0)));
+    const maxReqs = Math.max(5, ...series.map((d) => Number(d.requests || 0)));
+    const w = 560, h = 195, padL = 36, padR = 18, padT = 22, padB = 34;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+    const stepX = series.length > 1 ? plotW / (series.length - 1) : plotW / 2;
+    const barW = Math.min(26, Math.max(10, Math.floor(plotW / Math.max(series.length * 2.2, 4))));
+
+    const pts = series.map((d, i) => {
+      const x = series.length === 1 ? padL + plotW / 2 : padL + i * stepX;
+      const totTok = Number(d.observedTokens || 0) + Number(d.estimatedTokens || 0);
+      const yTok = padT + plotH - (totTok / maxTokens) * plotH;
+      const reqH = (Number(d.requests || 0) / maxReqs) * (plotH * 0.78);
+      const yReq = padT + plotH - reqH;
+      const label = String(d.day || '').slice(5).split('-').reverse().join('/');
+      return { x, yTok, yReq, reqH, totTok, reqs: Number(d.requests || 0), label };
+    });
+
+    const linePath = pts.length
+      ? pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.yTok.toFixed(1)}`).join(' ')
+      : `M${padL},${padT + plotH} L${w - padR},${padT + plotH}`;
+    const areaPath = pts.length
+      ? `${linePath} L${pts[pts.length - 1].x.toFixed(1)},${padT + plotH} L${pts[0].x.toFixed(1)},${padT + plotH} Z`
+      : '';
+
+    const activeProviders = [...(providerRows || [])]
+      .sort((a, b) => (Number(b.requests || 0) + Number(b.observedTokens || 0)) - (Number(a.requests || 0) + Number(a.observedTokens || 0)))
+      .slice(0, 6);
+    const maxProvMetric = Math.max(1, ...activeProviders.map((p) => Number(p.observedTokens || 0) + Number(p.estimatedTokens || 0) + Number(p.requests || 0) * 15));
+
+    return `
+      <div class="telemetry-panel-grid">
+        <article class="card telemetry-chart-card">
+          <div class="telemetry-card-head">
+            <div>
+              <h3>Curva de Consumo: Tokens &amp; Requisições</h3>
+              <p class="muted">Histórico real consolidado (${series.length ? `${series.length} dia(s) ativo(s)` : 'janela de 30 dias'})</p>
+            </div>
+            <div class="telemetry-legend">
+              <span class="legend-item"><i class="legend-dot token-dot"></i>Tokens (${Number(summary.observedTokens || 0).toLocaleString('pt-BR')})</span>
+              <span class="legend-item"><i class="legend-dot req-dot"></i>Reqs (${Number(summary.requests || 0).toLocaleString('pt-BR')})</span>
+            </div>
+          </div>
+          <div class="telemetry-svg-wrap">
+            <svg viewBox="0 0 ${w} ${h}" class="telemetry-svg" role="img" aria-label="Gráfico de evolução de tokens e requisições">
+              <defs>
+                <linearGradient id="teleGradTokens" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#4f8df7" stop-opacity="0.38"/>
+                  <stop offset="100%" stop-color="#4f8df7" stop-opacity="0.0"/>
+                </linearGradient>
+              </defs>
+              <line x1="${padL}" y1="${padT}" x2="${w - padR}" y2="${padT}" stroke="#1f2b3d" stroke-dasharray="3 3" />
+              <line x1="${padL}" y1="${padT + plotH / 2}" x2="${w - padR}" y2="${padT + plotH / 2}" stroke="#1f2b3d" stroke-dasharray="3 3" />
+              <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="#2b394d" />
+              <text x="${padL - 6}" y="${padT + 4}" text-anchor="end" fill="#8fa0b8" font-size="9">${maxTokens}</text>
+              <text x="${padL - 6}" y="${padT + plotH / 2 + 3}" text-anchor="end" fill="#8fa0b8" font-size="9">${Math.round(maxTokens / 2)}</text>
+              <text x="${padL - 6}" y="${padT + plotH + 3}" text-anchor="end" fill="#8fa0b8" font-size="9">0</text>
+              ${areaPath ? `<path d="${areaPath}" fill="url(#teleGradTokens)" />` : ''}
+              ${pts.map((p) => `
+                <rect x="${(p.x - barW / 2).toFixed(1)}" y="${p.yReq.toFixed(1)}" width="${barW}" height="${Math.max(2, p.reqH).toFixed(1)}" rx="3" fill="#10b981" fill-opacity="0.72" />
+              `).join('')}
+              <path d="${linePath}" fill="none" stroke="#4f8df7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+              ${pts.map((p) => `
+                <circle cx="${p.x.toFixed(1)}" cy="${p.yTok.toFixed(1)}" r="3.6" fill="#0b111b" stroke="#60a5fa" stroke-width="2" />
+                <text x="${p.x.toFixed(1)}" y="${(Math.min(p.yTok, p.yReq) - 6).toFixed(1)}" text-anchor="middle" fill="#dbe7ff" font-size="9" font-weight="600">${p.totTok > 0 ? p.totTok : p.reqs}</text>
+                <text x="${p.x.toFixed(1)}" y="${h - 10}" text-anchor="middle" fill="#95a2b6" font-size="9.5">${esc(p.label)}</text>
+              `).join('')}
+            </svg>
+          </div>
+          <div class="telemetry-summary-strip">
+            <span><strong>24h:</strong> ${Number(summary.requests24h || 0).toLocaleString('pt-BR')} reqs · ${Number(summary.tokens24h || 0).toLocaleString('pt-BR')} tok</span>
+            <span><strong>30d:</strong> ${Number(summary.requests || 0).toLocaleString('pt-BR')} reqs · ${Number(summary.observedTokens || 0).toLocaleString('pt-BR')} tok reportados · $${Number(summary.cost || 0).toFixed(4)}</span>
+          </div>
+        </article>
+        <article class="card telemetry-chart-card">
+          <div class="telemetry-card-head">
+            <div>
+              <h3>Distribuição por Provider (Tokens &amp; Custos)</h3>
+              <p class="muted">Volume medido por engine em execução</p>
+            </div>
+            <span class="badge ok">$${Number(summary.cost || 0).toFixed(4)} USD</span>
+          </div>
+          <div class="telemetry-provider-bars">
+            ${activeProviders.length ? activeProviders.map((p) => {
+              const totalProvTokens = Number(p.observedTokens || 0) + Number(p.estimatedTokens || 0);
+              const tokKind = Number(p.observedTokens || 0) > 0 ? 'rep.' : Number(p.estimatedTokens || 0) > 0 ? 'est.' : '';
+              const metric = totalProvTokens + Number(p.requests || 0) * 15;
+              const pct = p.requests > 0 || totalProvTokens > 0 ? Math.max(8, Math.min(100, Math.round((metric / maxProvMetric) * 100))) : 2;
+              return `
+                <div class="telemetry-prov-row">
+                  <div class="telemetry-prov-meta">
+                    ${providerIdentity(p.name)}
+                    <span class="telemetry-prov-stats">
+                      <strong>${Number(p.requests || 0).toLocaleString('pt-BR')} reqs</strong> ·
+                      ${totalProvTokens.toLocaleString('pt-BR')} tok${tokKind ? ` (${tokKind})` : ''} ·
+                      $${Number(p.estimatedCost || 0).toFixed(4)}
+                    </span>
+                  </div>
+                  <div class="telemetry-bar-track">
+                    <div class="telemetry-bar-fill" style="width:${pct}%"></div>
+                  </div>
+                </div>`;
+            }).join('') : '<p class="muted">Nenhum consumo registrado no período.</p>'}
+          </div>
+        </article>
+      </div>`;
+  };
   const fileDataUrl = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file);
   });
@@ -288,16 +430,17 @@
           <div id="live-status" class="badge">CONSULTANDO</div>
         </div>
         <div class="cards">
-          <div class="card"><div class="label">Latencia Global</div><div class="value" id="home-latency">—</div></div>
-          <div class="card"><div class="label">Requests (24h)</div><div class="value" id="home-reqs">0</div></div>
-          <div class="card"><div class="label">Tokens (24h)</div><div class="value" id="home-tokens">0</div></div>
-          <div class="card"><div class="label">Custo (24h)</div><div class="value" id="home-cost">$0.00</div></div>
-          <div class="card"><div class="label">Tenants Ativos</div><div class="value" id="home-tenants">0</div></div>
-          <div class="card"><div class="label">Uptime</div><div class="value" id="home-uptime">0s</div></div>
-          <div class="card"><div class="label">Memoria</div><div class="value" id="home-mem">0MB</div></div>
-          <div class="card"><div class="label">Workers</div><div class="value ok" id="home-workers">0</div></div>
+          <div class="card"><div class="label">Latencia Global</div><div class="value" id="home-latency">—</div><small id="home-latency-sub" class="muted">Média do gateway</small></div>
+          <div class="card"><div class="label">Requests (24h)</div><div class="value" id="home-reqs">0</div><small id="home-reqs-30d" class="muted">Acumulado 30d: 0</small></div>
+          <div class="card"><div class="label">Tokens reportados (24h)</div><div class="value" id="home-tokens">0</div><small id="home-token-quality" class="muted"></small></div>
+          <div class="card"><div class="label">Custo estimado (24h)</div><div class="value" id="home-cost">$0.00</div><small id="home-cost-30d" class="muted">Acumulado 30d: $0.0000</small></div>
+          <div class="card"><div class="label">Tenants Ativos</div><div class="value" id="home-tenants">0</div><small id="home-keys-sub" class="muted">Projetos isolados</small></div>
+          <div class="card"><div class="label">Uptime</div><div class="value" id="home-uptime">0s</div><small class="muted">Disponibilidade contínua</small></div>
+          <div class="card"><div class="label">Memoria</div><div class="value" id="home-mem">0MB</div><small class="muted">Host container</small></div>
+          <div class="card"><div class="label">Workers</div><div class="value ok" id="home-workers">0</div><small class="muted">BullMQ ativos</small></div>
         </div>
-        <div class="section" style="margin-top:2rem;">
+        <div class="section" style="margin-top:1.5rem;" id="home-telemetry-chart"></div>
+        <div class="section" style="margin-top:1.5rem;">
           <h2>Modulos da Plataforma</h2>
           <div class="cards" id="home-modules"></div>
         </div>
@@ -305,7 +448,7 @@
           <h2>Providers em Tempo Real</h2>
           <div class="table-container">
             <table id="home-providers-table">
-              <thead><tr><th>Provider</th><th>Status</th><th>Latencia</th><th>Requests</th><th>Tokens</th><th>Custo (USD)</th></tr></thead>
+              <thead><tr><th>Provider</th><th>Status</th><th>Latência</th><th>Chamadas (24h / 30d)</th><th>Tokens reportados</th><th>Tokens estimados</th><th>Custo estimado (USD)</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -315,38 +458,110 @@
       const updateHome = async () => {
         if (location.hash.replace('#/', '') !== 'home' && location.hash !== '') return;
         try {
-          const [ { overview }, health ] = await Promise.all([
+          const [ { overview }, health, usageRes ] = await Promise.all([
             api('/admin/overview'),
-            api('/v1/health')
+            api('/v1/health'),
+            api('/admin/usage?days=30').catch(() => ({ usage: [] })),
           ]);
 
           if ($('#home-latency')) {
+            const usageList = Array.isArray(usageRes?.usage) ? usageRes.usage : [];
+            const fallback30dReqs = usageList.reduce((s, u) => s + Number(u.requests || 0), 0);
+            const fallback30dObs = usageList.reduce((s, u) => s + Number(u.observedTokens || u.totalTokens || 0), 0);
+            const fallback30dEst = usageList.reduce((s, u) => s + Number(u.estimatedTokens || 0), 0);
+            const fallback30dCost = usageList.reduce((s, u) => s + Number(u.cost || 0), 0);
+
+            const totals30d = overview.totals30d || {
+              requests: Math.max(fallback30dReqs, Number(overview.last24h.requests || 0)),
+              observedTokens: Math.max(fallback30dObs, Number(overview.last24h.observedTokens || 0)),
+              estimatedTokens: Math.max(fallback30dEst, Number(overview.last24h.estimatedTokens || 0)),
+              cost: Math.max(fallback30dCost, Number(overview.last24h.cost || 0)),
+            };
+
             const latency = health.latency || overview.last24h.avgDurationMs;
             $('#home-latency').textContent = latency + 'ms';
-            $('#home-reqs').textContent = overview.last24h.requests;
-            $('#home-tokens').textContent = overview.last24h.totalTokens;
-            $('#home-cost').textContent = '$' + Number(overview.last24h.cost).toFixed(4);
+            if ($('#home-latency-sub')) $('#home-latency-sub').textContent = `Média 24h: ${overview.last24h.avgDurationMs || 0}ms`;
+            $('#home-reqs').textContent = Number(overview.last24h.requests || 0).toLocaleString('pt-BR');
+            if ($('#home-reqs-30d')) $('#home-reqs-30d').textContent = `Acumulado 30d: ${Number(totals30d.requests || 0).toLocaleString('pt-BR')} reqs`;
+            $('#home-tokens').textContent = Number(overview.last24h.observedTokens || 0).toLocaleString('pt-BR');
+            $('#home-token-quality').textContent = `30d: ${Number(totals30d.observedTokens || 0).toLocaleString('pt-BR')} rep. · ${Number(overview.last24h.estimatedTokens || 0).toLocaleString('pt-BR')} est.`;
+            $('#home-cost').textContent = '$' + Number(overview.last24h.cost || 0).toFixed(4);
+            if ($('#home-cost-30d')) $('#home-cost-30d').textContent = `Acumulado 30d: $${Number(totals30d.cost || 0).toFixed(4)}`;
             $('#home-tenants').textContent = overview.tenants;
-            $('#home-uptime').textContent = (health.uptime || 0) + 's';
+            if ($('#home-keys-sub')) $('#home-keys-sub').textContent = `${overview.apiKeys ?? '—'} chaves ativas`;
+            $('#home-uptime').textContent = fmtUptime(health.uptime || 0);
             $('#home-mem').textContent = health.memory ? health.memory.free + 'MB livres' : 'OK';
             $('#home-workers').textContent = health.workers ?? '—';
             $('#live-status').textContent = health.status;
             $('#live-status').className = health.success ? 'badge ok' : 'badge err';
+
+            let dailySeries = overview.dailySeries || [];
+            if (!dailySeries.length && usageList.length) {
+              const byDay = new Map();
+              for (const u of usageList) {
+                const dayKey = new Date(u.day).toISOString().slice(0, 10);
+                const cur = byDay.get(dayKey) || { day: dayKey, requests: 0, observedTokens: 0, estimatedTokens: 0, cost: 0 };
+                cur.requests += Number(u.requests || 0);
+                cur.observedTokens += Number(u.observedTokens || u.totalTokens || 0);
+                cur.estimatedTokens += Number(u.estimatedTokens || 0);
+                cur.cost += Number(u.cost || 0);
+                byDay.set(dayKey, cur);
+              }
+              dailySeries = Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));
+            }
+
+            const prov30dMap = new Map();
+            for (const u of usageList) {
+              const cur = prov30dMap.get(u.provider) || { name: u.provider, requests: 0, observedTokens: 0, estimatedTokens: 0, estimatedCost: 0 };
+              cur.requests += Number(u.requests || 0);
+              cur.observedTokens += Number(u.observedTokens || u.totalTokens || 0);
+              cur.estimatedTokens += Number(u.estimatedTokens || 0);
+              cur.estimatedCost += Number(u.cost || 0);
+              prov30dMap.set(u.provider, cur);
+            }
+            for (const p of (overview.providers || [])) {
+              const u30 = p.usage30d || prov30dMap.get(p.name) || { requests: 0, observedTokens: 0, estimatedTokens: 0, estimatedCost: 0 };
+              const u24 = p.usage || { requests: 0, observedTokens: 0, estimatedTokens: 0, estimatedCost: 0 };
+              prov30dMap.set(p.name, {
+                name: p.name,
+                requests: Math.max(Number(u30.requests || 0), Number(u24.requests || 0)),
+                observedTokens: Math.max(Number(u30.observedTokens || 0), Number(u24.observedTokens || 0)),
+                estimatedTokens: Math.max(Number(u30.estimatedTokens || 0), Number(u24.estimatedTokens || 0)),
+                estimatedCost: Math.max(Number(u30.estimatedCost || 0), Number(u24.estimatedCost || 0)),
+              });
+            }
+
+            if ($('#home-telemetry-chart')) {
+              $('#home-telemetry-chart').innerHTML = renderTelemetryCharts(dailySeries, Array.from(prov30dMap.values()), {
+                requests24h: overview.last24h.requests,
+                tokens24h: overview.last24h.observedTokens,
+                requests: totals30d.requests,
+                observedTokens: totals30d.observedTokens,
+                estimatedTokens: totals30d.estimatedTokens,
+                cost: totals30d.cost,
+              });
+            }
 
             const mods = ['API','Dashboard','Postgres','Redis','Mission','Streaming','Docker','SSL'];
             $('#home-modules').innerHTML = mods.map(m => card(m, health[m.toLowerCase()] ? 'ONLINE' : (health.checks?.[m.toLowerCase()] ? 'ONLINE' : 'N/A'), health[m.toLowerCase()] ? 'ok' : '')).join('');
 
             const tbody = $('#home-providers-table tbody');
             if (tbody && health.providers) {
+              const usageByProvider = new Map((overview.providers || []).map(provider => [provider.name, provider.usage]));
               tbody.innerHTML = Object.entries(health.providers).map(([name, p]) =>
-                `<tr>
-                  <td><strong>${esc(name)}</strong></td>
+                { const usage = usageByProvider.get(name) || { requests: 0, observedTokens: 0, estimatedTokens: 0, estimatedCost: 0 };
+                  const u30 = prov30dMap.get(name) || usage;
+                  const reqText = u30.requests > usage.requests ? `${Number(usage.requests).toLocaleString('pt-BR')} <small class="muted">(${Number(u30.requests).toLocaleString('pt-BR')} 30d)</small>` : Number(usage.requests).toLocaleString('pt-BR');
+                  const tokText = u30.observedTokens > usage.observedTokens ? `${Number(usage.observedTokens).toLocaleString('pt-BR')} <small class="muted">(${Number(u30.observedTokens).toLocaleString('pt-BR')} 30d)</small>` : Number(usage.observedTokens).toLocaleString('pt-BR');
+                  return `<tr>
+                  <td>${providerIdentity(name)}</td>
                   <td><span class="badge ${p.status === 'ONLINE' ? 'ok' : ''}">${esc(p.status || 'UNKNOWN')}</span></td>
                   <td>${p.latency == null ? '—' : fmtMs(p.latency)}</td>
-                  <td>${p.requests ?? '—'}</td>
-                  <td>${p.tokens ?? '—'}</td>
-                  <td>${p.cost == null ? '—' : '$' + Number(p.cost).toFixed(4)}</td>
-                </tr>`
+                  <td>${reqText}</td>
+                  <td>${tokText}</td>
+                  <td>${Number(u30.estimatedTokens || usage.estimatedTokens || 0).toLocaleString('pt-BR')}</td>
+                  <td>$${Number(Math.max(u30.estimatedCost || 0, usage.estimatedCost || 0)).toFixed(4)}</td>
+                </tr>`; }
               ).join('');
             }
           }
@@ -536,18 +751,17 @@
     async providers() {
       const providerView = viewController;
       content().innerHTML = '<h1>Provedores de IA</h1><p class="muted" role="status">Carregando conexões...</p>';
-      let providers, defaults, configs, connectionOptions, usageList = [], logList = [];
+      let providers, defaults, configs, connectionOptions, accounts;
       try {
-        const [res1, res2, res3, resUsage, resLogs] = await Promise.all([
+        const [res1, res2, res3, resAccounts] = await Promise.all([
           api('/admin/providers'),
           api('/admin/provider-configs'),
           api('/admin/provider-oauth/options').catch(() => ({ options: {} })),
-          api('/admin/usage?days=7').catch(() => ({ usage: [] })),
-          api('/admin/logs?limit=250').catch(() => ({ logs: [] })),
+          api('/admin/provider-accounts'),
         ]);
         providers = res1.providers; defaults = res1.defaults; configs = res2.configs; connectionOptions = res3.options || {};
-        usageList = (resUsage && resUsage.usage) || [];
-        logList = (resLogs && resLogs.logs) || [];
+        if (!Array.isArray(resAccounts.accounts)) throw new Error('Resposta de contas inválida.');
+        accounts = resAccounts.accounts;
       } catch (err) {
         if (isViewStale(providerView)) return;
         content().innerHTML = `<h1>Provedores de IA</h1><p class="error" role="alert">Erro ao carregar conexões: ${esc(err.message)}</p><button id="p-retry" class="ghost">Tentar novamente</button>`;
@@ -629,23 +843,8 @@
       };
       const providerTitle = (name) => details[name]?.title || name;
       const logo = (name) => `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${name}.svg" width="28" height="28" alt="" /></span>`;
-      const svgClock = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
-      const svgCalendar = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`;
-      const svgBolt = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`;
       const svgExternal = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 
-      const getProviderTier = (name, cfg, live) => {
-        if (cfg?.settings?.accountTier) {
-          return cfg.settings.accountTier.toUpperCase();
-        }
-        if (name === 'ollama') return 'LOCAL 24/7';
-        if (name === 'gemini') return 'PRO / ULTRA';
-        if (name === 'openai') return 'PLUS / PRO';
-        if (name === 'anthropic') return 'PRO / TEAM';
-        if (name === 'groq') return 'LPU ULTRA';
-        if (details[name]?.kind === 'local' || details[name]?.kind === 'image') return 'DEDICATED';
-        return 'DEVELOPER';
-      };
       const fmtTokens = (n) => {
         if (!n || n <= 0) return '0 tokens';
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M tokens';
@@ -657,39 +856,6 @@
         if (c === 0) return 'US$ 0.00';
         if (c < 0.01) return '< US$ 0.01';
         return 'US$ ' + Number(c).toFixed(2);
-      };
-      const now = Date.now();
-      const fiveHoursAgo = now - 5 * 3600 * 1000;
-      const getProviderUsage = (name) => {
-        const pLogs = (logList || []).filter(l => l.provider === name && new Date(l.createdAt).getTime() >= fiveHoursAgo);
-        const p5hCalls = pLogs.length;
-        const p5hTokens = pLogs.reduce((sum, l) => sum + (Number(l.totalTokens) || 0), 0);
-        const p5hCost = pLogs.reduce((sum, l) => sum + (Number(l.cost) || 0), 0);
-
-        const pUsage = (usageList || []).filter(u => u.provider === name);
-        const p7dCalls = pUsage.reduce((sum, u) => sum + (Number(u.requests) || 0), 0);
-        const p7dTokens = pUsage.reduce((sum, u) => sum + (Number(u.totalTokens) || 0), 0);
-        const p7dCost = pUsage.reduce((sum, u) => sum + (Number(u.cost) || 0), 0);
-
-        return {
-          h5: { calls: p5hCalls, tokens: p5hTokens, cost: p5hCost },
-          d7: { calls: p7dCalls, tokens: p7dTokens, cost: p7dCost },
-        };
-      };
-      const defaultQuotas = {
-        groq: '6.000 TPM · 500.000 TPD (30 RPM)',
-        gemini: '1.000.000 TPM · 1.500 RPD (15 RPM)',
-        cloudflare: '10.000 RPD (60 RPM)',
-        openrouter: '40.000 TPM · 200 RPD (20 RPM)',
-        ollama: 'Local ilimitado (concorrência do host)',
-        openai: 'Tier da conta (TPM / RPD)',
-        anthropic: 'Tier da conta (TPM / RPD)',
-        xai: 'Tier da conta (TPM / RPD)',
-        huggingface: 'Tier da conta (inferência serverless)',
-        lmstudio: 'Local ilimitado',
-        comfyui: 'Local / GPU dedicada',
-        forge: 'Local / GPU dedicada',
-        invokeai: 'Local / GPU dedicada',
       };
       content().innerHTML = `
         <section class="providers-page">
@@ -707,71 +873,108 @@
       const dialog = $('#provider-dialog');
       let returnFocus;
       let saving = false;
-      let providerDataGeneration = 0;
-      const renderCards = () => {
-        $('#p-defaults').innerHTML = Object.entries(defaults || {}).map(([capability, name]) => `<span>${esc({ chat: 'Chat', image: 'Imagens', embedding: 'Embeddings', vision: 'Visão', audio: 'Áudio' }[capability] || capability)} <strong>${esc(providerTitle(name))}</strong></span>`).join('');
-        const connected = choices.filter(name => configByName[name] || providers.some(p => p.name === name));
-        $('#p-count').textContent = `${connected.length} ${connected.length === 1 ? 'provedor configurado' : 'provedores configurados'}`;
-        const renderCard = (name) => {
-          const live = providers.find(p => p.name === name);
-          const cfg = configByName[name];
-          const configured = Boolean(cfg || live);
-          const online = live?.health?.ok === true;
-          const status = cfg?.oauthNeedsReauth ? ['warn', 'Nova autorização necessária'] : online ? ['ok', 'Online'] : live?.health?.ok === false ? ['error', 'Indisponível'] : cfg?.enabled === false ? ['muted', 'Desativado'] : configured ? ['warn', 'Verificar conexão'] : ['muted', 'Não conectado'];
-          const modelNames = (live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name).filter(Boolean);
-          const authLabel = cfg?.settings?.authMode === 'oauth' && cfg?.hasOAuth ? `<span class="provider-auth-label">Conta ${esc(name === 'gemini' ? 'Google' : 'Hugging Face')}</span>` : '';
-          const tierName = getProviderTier(name, cfg, live);
-          const tierLower = tierName.toLowerCase();
-          const tierClass = tierLower.includes('ultra') ? 'tier-ultra' : tierLower.includes('pro') ? 'tier-pro' : tierLower.includes('plus') ? 'tier-plus' : tierLower.includes('enterprise') ? 'tier-enterprise' : (tierLower.includes('local') || tierLower.includes('24/7') || tierLower.includes('dedicated')) ? 'tier-dedicated' : 'tier-free';
-          const tierBadgeHtml = `<span class="tier-badge ${tierClass}">${esc(tierName)}</span>`;
-
-          return `<article class="provider-card" data-provider-card="${name}">
-            <div class="provider-card-heading">${logo(name)}<div><h3>${esc(providerTitle(name))}</h3><p>${esc(details[name].description)}</p></div></div>
-            <div class="provider-card-status"><span class="provider-status ${status[0]}"><span aria-hidden="true">●</span> ${status[1]}</span>${tierBadgeHtml}${authLabel}${defaults?.chat === name ? '<span class="provider-default-label">Padrão de chat</span>' : ''}${online && live.health.latencyMs != null ? `<span class="muted">${fmtMs(live.health.latencyMs)}</span>` : ''}</div>
-            ${configured ? `<p class="provider-models" title="${esc(modelNames.join(', '))}">${modelNames.length ? `${modelNames.length} ${modelNames.length === 1 ? 'modelo' : 'modelos'} · ${esc(modelNames.slice(0, 2).join(', '))}` : cfg?.settings?.defaultModel ? `Modelo: ${esc(cfg.settings.defaultModel)}` : 'Nenhum modelo disponível'}</p>` : ''}
-            ${(() => {
-              const displayModels = modelNames.length > 0 ? modelNames : (defaultPortals[name]?.models || []);
-              return displayModels.length > 0 ? `
-            <div class="provider-card-model-tags" aria-label="Modelos suportados">
-              ${displayModels.slice(0, 3).map(m => `<span class="model-tag" title="${esc(m)}">${esc(m)}</span>`).join('')}
-              ${displayModels.length > 3 ? `<span class="model-tag-more">+${displayModels.length - 3}</span>` : ''}
-            </div>` : '';
-            })()}
-            ${(() => {
-              const usageData = getProviderUsage(name);
-              const quota = defaultQuotas[name];
-              return configured ? `
-            <div class="provider-usage-panel" aria-label="Uso de tokens da conta">
-              <div class="provider-usage-row">
-                <div class="provider-usage-item">
-                  <span class="usage-label">${svgClock} Consumo Horário (5h)</span>
-                  <span class="usage-tokens">${fmtTokens(usageData.h5.tokens)}</span>
-                  <small class="muted">${usageData.h5.calls} ${usageData.h5.calls === 1 ? 'chamada' : 'chamadas'} · ${fmtCost(usageData.h5.cost)}</small>
-                </div>
-                <div class="provider-usage-item">
-                  <span class="usage-label">${svgCalendar} Consumo Semanal (7d)</span>
-                  <span class="usage-tokens">${fmtTokens(usageData.d7.tokens)}</span>
-                  <small class="muted">${usageData.d7.calls} ${usageData.d7.calls === 1 ? 'chamada' : 'chamadas'} · ${fmtCost(usageData.d7.cost)}</small>
-                </div>
-              </div>
-              ${quota ? `<div class="provider-quota-badge"><span>${svgBolt} Quota & Limite:</span> <strong>${esc(quota)}</strong></div>` : ''}
-            </div>` : (quota ? `<div class="provider-quota-badge" style="margin: 0.25rem 0;"><span>${svgBolt} Quota Estimada:</span> <strong>${esc(quota)}</strong></div>` : '');
-            })()}
-            <div class="provider-card-actions">
-              <button class="${configured ? 'ghost' : ''}" data-connect-provider="${name}">${configured ? 'Configurar' : 'Conectar conta'}<span class="sr-only"> ${esc(providerTitle(name))}</span></button>
-              ${(() => {
-                const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
-                return portalUrl ? `<a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">${svgExternal} Acessar Portal ↗</a>` : '';
-              })()}
-              ${live ? `<button class="ghost" data-test-provider="${name}" aria-label="Testar conexão ${esc(providerTitle(name))}">Testar conexão</button>` : ''}
-              ${cfg?.hasOAuth ? `<button class="ghost" data-disconnect-oauth="${name}">Desconectar conta</button>` : ''}
-            </div>
-            <p class="provider-test-result" data-provider-result="${name}" role="status"></p>
-          </article>`;
-        };
-        $('#p-connected').innerHTML = connected.length ? connected.map(renderCard).join('') : '<div class="provider-empty"><h3>Sua primeira conexão começa aqui</h3><p class="muted">Escolha um provedor abaixo ou clique em + para adicionar.</p></div>';
-        $('#p-catalog').innerHTML = choices.filter(name => !connected.includes(name)).map(renderCard).join('') || '<p class="muted">Todos os provedores já foram adicionados. Gerencie suas conexões acima.</p>';
+      let selectedAccount = null;
+      let initialProviderSettings;
+      const usageByAccount = new Map();
+      const testResults = new Map();
+      const accountOperations = new Set();
+      const usageGenerations = new Map();
+      const healthVersions = new Map();
+      let accountRefreshGeneration = 0;
+      const applyAccountHealth = (id, health) => {
+        const account = accounts.find(item => item.id === id);
+        if (!account) return;
+        account.health = health;
+        healthVersions.set(id, (healthVersions.get(id) || 0) + 1);
       };
+      const refreshAccounts = async () => {
+        const generation = ++accountRefreshGeneration;
+        const versions = new Map(healthVersions);
+        const refreshed = await api('/admin/provider-accounts');
+        if (isViewStale(providerView) || generation !== accountRefreshGeneration) return;
+        const current = new Map(accounts.map(account => [account.id, account]));
+        accounts = refreshed.accounts.map(account => {
+          const latest = current.get(account.id);
+          return latest && healthVersions.get(account.id) !== versions.get(account.id)
+            ? { ...account, health: latest.health }
+            : account;
+        });
+      };
+      const accountPath = id => '/admin/provider-accounts/' + encodeURIComponent(id);
+      const renderUsage = (account) => {
+        const state = usageByAccount.get(account.id);
+        if (!state) return '<p class="muted" role="status">Carregando uso da conta...</p>';
+        if (state.error) return '<p class="muted">Uso indisponível. <button class="ghost" data-refresh-usage="' + esc(account.id) + '">Tentar novamente</button></p>';
+        const windowHtml = (key, label) => {
+          const window = state[key];
+          const knownTokens = Number.isFinite(window?.observedTokens) ? window.observedTokens : window?.totalTokens;
+          const tokens = Number.isFinite(knownTokens) ? fmtTokens(knownTokens) + ' reportados' : 'Uso indisponível';
+          const cost = window?.pricingConfigured === false || window?.missingPricingAttempts > 0 ? 'Tarifa não configurada' : Number.isFinite(window?.estimatedCost) ? fmtCost(window.estimatedCost) + ' estimado' : 'Gasto estimado indisponível';
+          const missingUsage = Number(window?.missingUsageAttempts || 0);
+          return '<div class="provider-usage-item"><span class="usage-label">' + label + '</span><span class="usage-tokens">' + tokens + '</span><small class="muted">' + (Number.isFinite(window?.calls) ? window.calls + ' chamadas · ' : '') + (missingUsage ? missingUsage + ' tentativas sem tokens reportados · ' : '') + cost + '</small></div>';
+        };
+        return '<div class="provider-usage-row">' + windowHtml('last5h', 'Últimas 5 horas') + windowHtml('last7d', 'Últimos 7 dias') + '</div><small class="muted">Tokens reportados pelo modelo; custo é estimado pelo gateway e não representa o saldo ou a quota do provedor.</small>';
+      };
+      const loadUsage = async account => {
+        const generation = (usageGenerations.get(account.id) || 0) + 1;
+        usageGenerations.set(account.id, generation);
+        usageByAccount.delete(account.id);
+        try {
+          const response = await api(accountPath(account.id) + '/usage');
+          if (!response.usage || response.usage.accountId !== account.id) throw new Error('Uso indisponível');
+          if (generation !== usageGenerations.get(account.id)) return;
+          usageByAccount.set(account.id, response.usage);
+        } catch {
+          if (generation !== usageGenerations.get(account.id)) return;
+          usageByAccount.set(account.id, { error: true });
+        }
+        if (isViewStale(providerView)) return;
+        const panel = [...content().querySelectorAll('[data-account-usage]')].find(el => el.dataset.accountUsage === account.id);
+        if (panel) panel.innerHTML = renderUsage(account);
+      };
+      const renderCards = () => {
+        $('#p-defaults').innerHTML = Object.entries(defaults || {}).map(([capability, name]) => '<span>' + esc({ chat: 'Chat', image: 'Imagens', embedding: 'Embeddings', vision: 'Visão', audio: 'Áudio' }[capability] || capability) + ' <strong>' + esc(providerTitle(name)) + '</strong></span>').join('');
+        $('#p-count').textContent = accounts.length + (accounts.length === 1 ? ' conta configurada' : ' contas configuradas');
+        const renderCard = (name, account) => {
+          const live = providers.find(p => p.name === name);
+          const health = account?.health;
+          const checkedAt = health?.checkedAt ? Date.parse(health.checkedAt) : NaN;
+          const ageMs = Number.isFinite(checkedAt) ? Math.max(0, Date.now() - checkedAt) : Infinity;
+          const freshness = ageMs < 60_000 ? 'agora' : 'há ' + Math.floor(ageMs / 60_000) + ' min';
+          const latency = Number.isFinite(health?.latencyMs) ? fmtMs(health.latencyMs) : null;
+          const status = !account ? ['muted', 'Adicionar conta']
+            : !account.enabled ? ['muted', 'Desativada']
+              : account.oauthNeedsReauth ? ['warn', 'Nova autorização necessária']
+                : ageMs > 5 * 60_000 ? ['muted', checkedAt ? 'Verificação desatualizada' : 'Verificar conexão']
+                  : health?.ok === false ? ['error', 'Indisponível' + (latency ? ' · ' + latency : '')]
+                    : health?.ok === true && latency === null ? ['muted', 'Online · latência não medida']
+                      : health?.ok === true ? [health.latencyMs <= 1000 ? 'ok' : health.latencyMs <= 3000 ? 'warn' : 'error', (health.latencyMs <= 1000 ? 'Online' : 'Lenta') + ' · ' + latency + ' · ' + freshness]
+                        : ['muted', 'Verificar conexão'];
+          const modelNames = [...new Set([account?.defaultModel, ...(live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name)].filter(Boolean))];
+          const displayModels = modelNames.length ? modelNames : defaultPortals[name]?.models || [];
+          const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
+          const result = account && testResults.get(account.id);
+          const disabled = account && accountOperations.has(account.id) ? ' disabled' : '';
+          return '<article class="provider-card" ' + (account ? 'data-provider-account="' + esc(account.id) : 'data-provider-card="' + esc(name)) + '">' +
+            '<div class="provider-card-heading">' + logo(name) + '<div><h3>' + esc(account?.displayName || providerTitle(name)) + '</h3><p>' + esc(account ? providerTitle(name) : details[name].description) + '</p></div></div>' +
+            '<div class="provider-card-status"><span class="provider-status ' + status[0] + '"><span aria-hidden="true">●</span> ' + status[1] + '</span>' + (account?.accountTier ? '<span class="tier-badge">' + esc(account.accountTier.toUpperCase()) + '</span>' : '') + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>' +
+            (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + '</p>' : '') +
+            '<div class="provider-card-model-tags" aria-label="Modelos disponíveis ou sugeridos">' + displayModels.slice(0, 3).map(model => '<span class="model-tag" title="' + esc(model) + '">' + esc(model) + '</span>').join('') + '</div>' +
+            (account ? '<div class="provider-usage-panel" data-account-usage="' + esc(account.id) + '" aria-label="Uso estimado da conta">' + renderUsage(account) + '</div>' : '') +
+            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>') +
+            (portalUrl ? '<a href="' + esc(portalUrl) + '" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">' + svgExternal + ' Acessar Portal</a>' : '') + '</div>' +
+            (account ? '<p class="provider-test-result ' + esc(result?.kind || '') + '" data-account-result="' + esc(account.id) + '" role="status">' + esc(result?.message || '') + '</p>' : '') + '</article>';
+        };
+        $('#p-connected').innerHTML = accounts.length ? accounts.map(account => renderCard(account.providerName, account)).join('') : '<div class="provider-empty"><h3>Sua primeira conexão começa aqui</h3><p class="muted">Escolha um provedor abaixo ou clique em + para adicionar.</p></div>';
+        $('#p-catalog').innerHTML = choices.map(name => renderCard(name)).join('');
+      };
+      const dialogConfig = () => selectedAccount ? {
+        enabled: selectedAccount.enabled, baseUrl: selectedAccount.baseUrl,
+        hasApiKey: selectedAccount.authMode === 'apiKey' && selectedAccount.hasCredential,
+        hasOAuth: selectedAccount.authMode === 'oauth' && selectedAccount.hasCredential,
+        oauthNeedsReauth: selectedAccount.oauthNeedsReauth,
+        settings: { authMode: selectedAccount.authMode, defaultModel: selectedAccount.defaultModel, accountTier: selectedAccount.accountTier, accountId: selectedAccount.accountId },
+      } : null;
       let flowPollTimer;
       let flowGeneration = 0;
       const stopOAuthPolling = () => { clearTimeout(flowPollTimer); flowGeneration++; };
@@ -780,17 +983,16 @@
         const cloud = details[name].kind === 'cloud';
         const selected = dialog.querySelector('input[name="provider-auth-mode"]:checked')?.value;
         const mode = cloud ? (selected || $('#p-auth-mode').value || 'apiKey') : 'local';
-        const cfg = configByName[name];
-        const hasApiKey = Boolean(cfg?.hasApiKey || (providers.some(p => p.name === name) && !cfg?.hasOAuth));
+        const cfg = dialogConfig();
+        const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-auth-mode').value = mode;
         $('#p-key-field').hidden = !cloud || mode !== 'apiKey';
         $('#p-key').required = cloud && mode === 'apiKey' && !hasApiKey;
         $('#p-account-field').hidden = name !== 'cloudflare';
-        $('#p-account').required = name === 'cloudflare' && mode === 'apiKey' && !providers.some(p => p.name === name);
-        $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth';
-        $('#p-google-oauth-actions').hidden = name !== 'gemini' || mode !== 'oauth';
-        const oauthAlreadyConnected = Boolean(cfg?.hasOAuth && !cfg?.oauthNeedsReauth);
-        $('#p-save').disabled = mode === 'oauth' && !oauthAlreadyConnected;
+        $('#p-account').required = name === 'cloudflare' && mode === 'apiKey' && !selectedAccount;
+        $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
+        $('#p-google-oauth-actions').hidden = name !== 'gemini' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
+        $('#p-save').disabled = false;
         $('#p-save').textContent = mode === 'oauth' ? 'Salvar ajustes' : 'Salvar conexão';
       };
       const fillProvider = (name) => {
@@ -798,39 +1000,32 @@
         $('#p-hf-start').disabled = false;
         $('#p-hf-flow').hidden = true;
         $('#p-hf-start-status').textContent = '';
-        const cfg = configByName[name];
+        const cfg = dialogConfig();
         const live = providers.find(p => p.name === name);
         const cloud = details[name].kind === 'cloud';
         const connection = connectionOptions[name] || {};
         const oauthEnabled = Boolean(connection.oauth?.enabled);
         const authMode = cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : 'apiKey')) : 'local';
-        const hasApiKey = Boolean(cfg?.hasApiKey || (live && !cfg?.hasOAuth));
+        const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-name').value = name;
+        $('#p-name').disabled = Boolean(selectedAccount);
+        $('#p-display-name').value = selectedAccount?.displayName || providerTitle(name);
         $('#p-auth-mode').value = authMode;
-        $('#p-url').value = cfg?.settings?.baseUrl || cfg?.baseUrl || '';
+        $('#p-url').value = cfg?.baseUrl || (cloud ? '' : defaultPortals[name]?.portalUrl || '');
         $('#p-key').value = '';
         $('#p-key').placeholder = cfg?.hasApiKey ? 'Credencial salva. Deixe vazio para manter.' : 'Cole sua API key ou token';
         $('#p-key-field').hidden = !cloud || authMode !== 'apiKey';
         $('#p-key').required = cloud && authMode === 'apiKey' && !hasApiKey;
-        $('#p-url').required = !cloud && !live;
+        $('#p-url').required = !cloud;
         $('#p-url').placeholder = cloud ? 'Opcional: endpoint personalizado' : 'http://servidor:porta';
         $('#p-auth-method-field').hidden = !cloud;
         const portalUrl = connection.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
         $('#p-auth-methods').innerHTML = cloud ? `
-          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API Key ou Token de Sessão</strong><small>Use uma credencial gerada no portal oficial ou token de programação da conta.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir portal no navegador para obter chave ↗</a>` : ''}</small></span></label>
-          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador ↗</a>` : ''}</small></span></div>` : ''}
+          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API Key ou Token</strong><small>Use uma credencial da API gerada no portal oficial.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir portal no navegador para obter chave</a>` : ''}</small></span></label>
+          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador</a>` : ''}</small></span></div>` : ''}
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
 
-        const defaultTierForProvider = (n) => {
-          if (n === 'gemini') return 'pro';
-          if (n === 'openai') return 'plus';
-          if (n === 'anthropic') return 'pro';
-          if (n === 'ollama' || n === 'comfyui' || n === 'forge' || n === 'invokeai' || n === 'lmstudio') return 'dedicated';
-          return 'free';
-        };
-        const currentTier = cfg?.settings?.accountTier || defaultTierForProvider(name);
-        if ($('#p-tier')) $('#p-tier').value = currentTier;
-
+        $('#p-tier').value = cfg?.settings?.accountTier || 'free';
         const suggestedModels = (live?.models || []).map(m => typeof m === 'string' ? m : m.id || m.name).filter(Boolean);
         const fallbackModels = defaultPortals[name]?.models || [];
         const modelList = suggestedModels.length > 0 ? suggestedModels : fallbackModels;
@@ -848,11 +1043,13 @@
           });
         }
         $('#p-account-field').hidden = name !== 'cloudflare';
-        $('#p-account').required = name === 'cloudflare' && authMode === 'apiKey' && !live;
+        $('#p-account').required = name === 'cloudflare' && authMode === 'apiKey' && !selectedAccount;
         $('#p-account').value = cfg?.settings?.accountId || '';
         $('#p-model').value = cfg?.settings?.defaultModel || '';
-        $('#p-embed').value = cfg?.settings?.embedModel || '';
-        $('#p-default-chat').checked = cfg?.settings?.defaultChat ?? defaults?.chat === name;
+        $('#p-embed').value = configByName[name]?.settings?.embedModel || '';
+        $('#p-default-chat').checked = defaults?.chat === name;
+        initialProviderSettings = { defaultChat: $('#p-default-chat').checked, embedModel: $('#p-embed').value };
+        $('#p-account').placeholder = selectedAccount ? 'Deixe vazio para preservar o ID salvo' : 'ID da conta Cloudflare';
         $('#p-default-field').hidden = details[name].kind === 'image';
         $('#p-enabled').checked = cfg?.enabled ?? true;
         $('#p-dialog-logo').innerHTML = logo(name);
@@ -870,41 +1067,45 @@
       });
       dialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
       dialog.addEventListener('click', event => { if (event.target === dialog) closeDialog(); });
-      dialog.addEventListener('close', () => { dialog.replaceChildren(); if (returnFocus?.isConnected) returnFocus.focus(); });
+      dialog.addEventListener('close', () => { stopOAuthPolling(); dialog.replaceChildren(); if (returnFocus?.isConnected) returnFocus.focus(); });
       providerView.signal.addEventListener('abort', () => { stopOAuthPolling(); if (dialog.open) dialog.close(); dialog.remove(); }, { once: true });
-      const openProvider = (name, trigger) => {
+      const openProvider = (name, trigger, account = null) => {
+        selectedAccount = account;
         returnFocus = trigger;
         dialog.innerHTML = `<div class="provider-dialog-content">
           <button type="button" id="p-close" class="ghost provider-dialog-close" aria-label="Fechar conexão">×</button>
           <div id="p-dialog-logo"></div><h2 id="p-dialog-title">Conectar conta</h2><p id="p-dialog-description" class="muted"></p>
           <form id="p-form"><div class="form-grid">
             <label class="provider-field-wide" for="p-name">Provedor<select id="p-name">${choices.map(id => `<option value="${id}">${esc(providerTitle(id))}</option>`).join('')}</select></label>
+            <label class="provider-field-wide" for="p-display-name">Nome da conta<input id="p-display-name" required maxlength="120" /></label>
             <input type="hidden" id="p-auth-mode" value="apiKey" />
             <fieldset class="provider-field-wide provider-auth-method-field" id="p-auth-method-field"><legend>Forma de conexão</legend><div id="p-auth-methods"></div></fieldset>
             <label class="provider-field-wide" for="p-tier">Plano / Tier de Conta
               <select id="p-tier">
-                <option value="plus">Plus (ChatGPT Plus / Developer Tier 1)</option>
-                <option value="pro">Pro (Gemini Pro / Claude Pro / OpenAI Pro)</option>
-                <option value="ultra">Ultra (Gemini Ultra / Vertex AI Dedicated / Enterprise)</option>
+                <option value="tier1">API Tier 1</option>
+                <option value="plus">Plus</option>
+                <option value="pro">Pro</option>
+                <option value="ultra">Ultra</option>
                 <option value="enterprise">Enterprise (Organização Corporativa)</option>
                 <option value="dedicated">Dedicated Host (Ollama / Local GPU 24/7)</option>
                 <option value="free">Free / Gratuito</option>
               </select>
             </label>
-            <label class="provider-field-wide" for="p-key" id="p-key-field">API Key / Token de Sessão<input id="p-key" type="password" autocomplete="new-password" /></label>
+            <label class="provider-field-wide" for="p-key" id="p-key-field">API Key / Token<input id="p-key" type="password" autocomplete="new-password" /></label>
             <label class="provider-field-wide" for="p-url">Endpoint / Base URL<input id="p-url" type="url" /></label>
             <label class="provider-field-wide" for="p-account" id="p-account-field">Account ID (Cloudflare)<input id="p-account" /></label>
             <label class="provider-field-wide" for="p-model">Modelo padrão
-              <input id="p-model" placeholder="Opcional: ID do modelo" />
+              <input id="p-model" maxlength="128" placeholder="Opcional: ID do modelo" />
               <div id="p-model-chips" class="provider-model-chips" aria-label="Sugestões de modelos"></div>
             </label>
-            <label for="p-embed">Modelo de embeddings<input id="p-embed" placeholder="Opcional: ID do modelo" /></label>
+            <label for="p-embed">Modelo de embeddings do provedor<input id="p-embed" placeholder="Opcional: ID do modelo" /></label>
           </div><div class="provider-form-options"><label class="inline-check" id="p-default-field"><input id="p-default-chat" type="checkbox" /> Usar como padrão de chat e tarefas do Fênix</label><label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Provedor ativo</label></div>
-          <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden><p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p><button id="p-hf-start" type="button">Entrar com Hugging Face</button><p id="p-hf-start-status" role="status" aria-live="polite"></p><div id="p-hf-flow" hidden><p>Código de autorização: <strong id="p-hf-code"></strong></p><a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer">Abrir Hugging Face para autorizar ↗</a><button id="p-hf-copy" class="ghost" type="button">Copiar código</button><p id="p-oauth-status" role="status" aria-live="polite"></p></div></section>
+          <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden><p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p><button id="p-hf-start" type="button">Entrar com Hugging Face</button><p id="p-hf-start-status" role="status" aria-live="polite"></p><div id="p-hf-flow" hidden><p>Código de autorização: <strong id="p-hf-code"></strong></p><a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer">Abrir Hugging Face para autorizar</a><button id="p-hf-copy" class="ghost" type="button">Copiar código</button><p id="p-oauth-status" role="status" aria-live="polite"></p></div></section>
           <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden><p>Continue para o Google autorizar o acesso à API Gemini.</p><button id="p-google-start" type="button">Entrar com Google</button></section>
           <p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
         </div>`;
         fillProvider(name);
+        $('#p-dialog-title').textContent = selectedAccount ? 'Editar conta' : 'Conectar conta';
         $('#p-name').onchange = event => fillProvider(event.target.value);
         $('#p-auth-methods').onchange = event => {
           if (!event.target.matches('input[name="provider-auth-mode"]')) return;
@@ -913,173 +1114,225 @@
         };
         $('#p-close').onclick = closeDialog;
         $('#p-cancel').onclick = closeDialog;
+        let disabledBeforeSave = new Set();
+        const setBusy = busy => {
+          if (busy) disabledBeforeSave = new Set([...dialog.querySelectorAll('button, input, select')].filter(el => el.disabled));
+          saving = busy;
+          $('#p-form').setAttribute('aria-busy', String(busy));
+          dialog.querySelectorAll('button, input, select').forEach(el => { el.disabled = busy || disabledBeforeSave.has(el); });
+          if (!busy) { $('#p-name').disabled = Boolean(selectedAccount); updateAuthFields(); }
+        };
+        const saveAccount = async () => {
+          const providerName = $('#p-name').value;
+          const authMode = $('#p-auth-mode').value;
+          const settings = { defaultModel: $('#p-model').value.trim(), accountTier: $('#p-tier').value };
+          const accountId = $('#p-account').value.trim();
+          const settingsChanged = !selectedAccount || settings.defaultModel !== (selectedAccount.defaultModel || '') || settings.accountTier !== (selectedAccount.accountTier || 'free') || (providerName === 'cloudflare' && accountId !== (selectedAccount?.accountId || ''));
+          // Omit unchanged settings and blank credentials to preserve the saved account.
+          if (providerName === 'cloudflare' && selectedAccount && settingsChanged && !accountId) {
+            throw new Error('Informe o Account ID para alterar o modelo ou plano desta conta Cloudflare. Deixe esses ajustes como estão para preservar o ID salvo.');
+          }
+          if (providerName === 'cloudflare' && accountId) settings.accountId = accountId;
+          const body = { providerName, displayName: $('#p-display-name').value.trim(), authMode, enabled: $('#p-enabled').checked, baseUrl: $('#p-url').value.trim() };
+          if (settingsChanged) body.settings = settings;
+          if (authMode === 'apiKey' && $('#p-key').value.trim()) body.apiKey = $('#p-key').value.trim();
+          const response = await api(selectedAccount ? accountPath(selectedAccount.id) : '/admin/provider-accounts', { method: selectedAccount ? 'PATCH' : 'POST', body });
+          if (isViewStale(providerView)) return null;
+          if (!response.account?.id) throw new Error('A API não confirmou a conta salva.');
+          accountRefreshGeneration++;
+          selectedAccount = response.account;
+          const index = accounts.findIndex(item => item.id === selectedAccount.id);
+          if (index < 0) accounts.push(selectedAccount); else accounts[index] = selectedAccount;
+          testResults.delete(selectedAccount.id);
+          $('#p-key').value = '';
+          $('#p-name').disabled = true;
+          renderCards();
+          loadUsage(selectedAccount);
+          return selectedAccount;
+        };
+        const saveProviderSettings = async () => {
+          const providerName = $('#p-name').value;
+          const defaultChat = !$('#p-default-field').hidden && $('#p-default-chat').checked;
+          const embedModel = $('#p-embed').value.trim();
+          const defaultChanged = defaultChat !== initialProviderSettings.defaultChat;
+          const embedChanged = embedModel !== initialProviderSettings.embedModel;
+          if (!defaultChanged && !embedChanged) return;
+          // The account PATCH may update the imported provider, while a secondary account has its own enabled state.
+          const { configs: latestConfigs } = await api('/admin/provider-configs');
+          if (!Array.isArray(latestConfigs)) throw new Error('A API não confirmou a configuração do provedor.');
+          latestConfigs.forEach(config => { configByName[config.name] = config; });
+          const legacy = configByName[providerName];
+          if (!latestConfigs.some(config => config.name === providerName) || typeof legacy?.enabled !== 'boolean') throw new Error('A API não confirmou o estado do provedor.');
+          const body = { name: providerName, enabled: legacy.enabled };
+          if (defaultChanged) body.defaultChat = defaultChat;
+          if (embedChanged) body.embedModel = embedModel;
+          await api('/admin/provider-configs', { method: 'POST', body });
+          initialProviderSettings = { defaultChat, embedModel };
+          configByName[providerName] = { ...legacy, settings: { ...legacy?.settings, ...(defaultChanged ? { defaultChat } : {}), ...(embedChanged ? { embedModel } : {}) } };
+          const [refreshed] = await Promise.all([api('/admin/providers'), refreshAccounts()]);
+          if (!isViewStale(providerView)) {
+            providers = refreshed.providers; defaults = refreshed.defaults; renderCards();
+            accounts.filter(account => !usageByAccount.has(account.id)).forEach(loadUsage);
+          }
+        };
         $('#p-hf-start').onclick = async () => {
-          const button = $('#p-hf-start');
+          if (saving || !$('#p-form').reportValidity()) return;
+          stopOAuthPolling();
           const status = $('#p-hf-start-status');
-          button.disabled = true; status.textContent = 'Solicitando código ao Hugging Face...'; status.className = 'muted';
+          status.textContent = 'Solicitando código ao Hugging Face...'; status.className = 'muted';
+          setBusy(true);
           try {
-            const flow = await api('/admin/provider-oauth/huggingface/start', { method: 'POST' });
-            if (isViewStale(providerView)) return;
+            const account = await saveAccount();
+            if (!account) return;
+            await saveProviderSettings();
+            const scope = accountPath(account.id) + '/oauth/huggingface';
+            const generation = ++flowGeneration;
+            const flow = await api(scope + '/start', { method: 'POST' });
+            if (isViewStale(providerView) || generation !== flowGeneration || !dialog.open) return;
             $('#p-hf-code').textContent = flow.userCode;
             $('#p-hf-link').href = flow.verificationUri;
             $('#p-hf-start-status').textContent = '';
             $('#p-hf-flow').hidden = false;
             const flowStatus = $('#p-oauth-status');
             flowStatus.textContent = 'Aguardando autorização. Esta janela verificará a conexão automaticamente.';
-            flowStatus.className = 'muted';
-            const generation = ++flowGeneration;
-            const poll = async (intervalSeconds) => {
+            const poll = intervalSeconds => {
               flowPollTimer = setTimeout(async () => {
                 if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
                 try {
-                  const result = await api('/admin/provider-oauth/huggingface/poll', { method: 'POST', body: { flowId: flow.flowId } });
+                  const result = await api(scope + '/poll', { method: 'POST', body: { flowId: flow.flowId } });
+                  if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
                   if (result.status === 'pending') { poll(result.intervalSeconds || flow.intervalSeconds); return; }
                   if (result.status !== 'connected') {
                     status.textContent = result.status === 'denied' ? 'A autorização foi negada no Hugging Face.' : 'O código expirou. Inicie uma nova conexão.';
-                    status.className = 'error'; button.disabled = false; return;
+                    status.className = 'error'; $('#p-hf-start').disabled = false; return;
                   }
-                  const [configResult, providerResult] = await Promise.all([api('/admin/provider-configs'), api('/admin/providers')]);
-                  if (isViewStale(providerView)) return;
-                  Object.keys(configByName).forEach(key => delete configByName[key]);
-                  configResult.configs.forEach(config => { configByName[config.name] = config; });
-                  providers = providerResult.providers; defaults = providerResult.defaults; renderCards();
-                  status.textContent = 'Conta autorizada. Verifique a conexão para confirmar que está online.';
-                  status.className = 'ok';
+                  await refreshAccounts();
+                  if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
+                  renderCards();
                   stopOAuthPolling(); dialog.close();
-                  content().querySelector(`[data-connect-provider="${name}"]`)?.focus();
-                  toast('Conta Hugging Face conectada. A disponibilidade será confirmada pelo teste real.', 'success');
+                  content().querySelector('[data-connect-provider="huggingface"]')?.focus();
+                  toast('Conta Hugging Face conectada. Teste a conexão para confirmar que está online.', 'success');
                 } catch (err) {
-                  if (isViewStale(providerView)) return;
-                  status.textContent = `Não foi possível verificar a autorização: ${err.message}`;
-                  status.className = 'error'; button.disabled = false;
+                  if (generation === flowGeneration && !isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; $('#p-hf-start').disabled = false; }
                 }
               }, Math.max(1, Math.min(Number(intervalSeconds) || 5, 60)) * 1000);
             };
             poll(flow.intervalSeconds);
           } catch (err) {
-            if (!isViewStale(providerView)) { status.textContent = err.message; status.className = 'error'; button.disabled = false; }
+            if (!isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; }
+          } finally {
+            if (!isViewStale(providerView) && dialog.open) setBusy(false);
           }
         };
         $('#p-hf-copy').onclick = async () => {
-          try { await navigator.clipboard.writeText($('#p-hf-code').textContent); $('#p-oauth-status').textContent = 'Código copiado.'; }
-          catch { $('#p-oauth-status').textContent = 'Selecione e copie o código manualmente.'; }
+          const status = $('#p-oauth-status');
+          try { await navigator.clipboard.writeText($('#p-hf-code').textContent); status.textContent = 'Código copiado.'; }
+          catch { status.textContent = 'Selecione e copie o código manualmente.'; }
         };
         $('#p-google-start').onclick = async () => {
-          const button = $('#p-google-start');
+          if (saving || !$('#p-form').reportValidity()) return;
           const status = $('#p-result');
-          button.disabled = true; status.textContent = 'Abrindo a autorização segura do Google...'; status.className = 'muted';
+          status.textContent = 'Abrindo a autorização segura do Google...'; status.className = 'muted';
+          setBusy(true);
           try {
-            const started = await api('/admin/provider-oauth/gemini/start', { method: 'POST' });
+            const account = await saveAccount();
+            if (!account) return;
+            await saveProviderSettings();
+            const started = await api(accountPath(account.id) + '/oauth/gemini/start', { method: 'POST' });
             if (!isViewStale(providerView)) window.location.assign(started.authorizationUrl);
           } catch (err) {
-            status.textContent = err.message; status.className = 'error'; button.disabled = false;
+            if (!isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; }
+          } finally {
+            if (!isViewStale(providerView) && dialog.open) setBusy(false);
           }
         };
         $('#p-form').onsubmit = async event => {
           event.preventDefault();
           if (saving) return;
-          const form = event.currentTarget;
+          stopOAuthPolling();
           const result = $('#p-result');
-          const body = {
-            name: $('#p-name').value, enabled: $('#p-enabled').checked,
-            defaultChat: !$('#p-default-field').hidden && $('#p-default-chat').checked,
-            baseUrl: $('#p-url').value.trim(), apiKey: $('#p-key').value.trim(),
-            accountId: $('#p-account').value.trim(), defaultModel: $('#p-model').value.trim(),
-            embedModel: $('#p-embed').value.trim(),
-            authMode: $('#p-auth-mode').value,
-            accountTier: $('#p-tier') ? $('#p-tier').value : undefined,
-          };
-          const saveGeneration = ++providerDataGeneration;
-          saving = true;
-          form.setAttribute('aria-busy', 'true');
-          dialog.querySelectorAll('button, input, select').forEach(el => { el.disabled = true; });
           result.textContent = 'Salvando conexão...'; result.className = 'muted';
+          setBusy(true);
           try {
-            const data = await api('/admin/provider-configs', { method: 'POST', body });
+            const account = await saveAccount();
+            if (!account) return;
+            await saveProviderSettings();
             if (isViewStale(providerView)) return;
-            const { apiKey, name: savedName, enabled, ...settings } = body;
-            configByName[savedName] = { name: savedName, enabled, settings, hasApiKey: Boolean(apiKey || configByName[savedName]?.hasApiKey), hasOAuth: configByName[savedName]?.hasOAuth, oauthNeedsReauth: configByName[savedName]?.oauthNeedsReauth };
-            if (body.defaultChat) Object.values(configByName).forEach(cfg => { if (cfg.name !== savedName && cfg.settings) cfg.settings.defaultChat = false; });
-            if (body.defaultChat && data.registered) defaults = { ...defaults, chat: savedName };
-            renderCards();
-            if (!data.registered && enabled) {
-              result.textContent = 'Configuração salva, mas o provedor não foi registrado. Confira as credenciais e os campos obrigatórios.';
-              result.className = 'warn';
-              return;
-            }
-            saving = false;
-            dialog.close();
-            // The cards were replaced; return keyboard focus to the saved provider.
-            content().querySelector(`[data-connect-provider="${savedName}"]`)?.focus();
-            toast('Configuração salva. Use Testar conexão para verificar a disponibilidade.', 'success');
-            api('/admin/providers').then(refreshed => {
-              if (isViewStale(providerView) || saveGeneration !== providerDataGeneration) return;
-              const focusedName = document.activeElement?.dataset.connectProvider;
-              providers = refreshed.providers; defaults = refreshed.defaults; renderCards();
-              if (focusedName) content().querySelector(`[data-connect-provider="${focusedName}"]`)?.focus();
-            }).catch(err => {
-              if (!isViewStale(providerView) && saveGeneration === providerDataGeneration) toast(`Não foi possível atualizar o status: ${err.message}`, 'error');
-            });
+            saving = false; dialog.close();
+            [...content().querySelectorAll('[data-edit-account]')].find(el => el.dataset.editAccount === account.id)?.focus();
+            toast('Conta salva. Use Testar conexão para verificar a disponibilidade.', 'success');
           } catch (err) {
-            if (isViewStale(providerView)) return;
-            if (dialog.open) { result.textContent = err.message; result.className = 'error'; }
-            else toast(`Configuração salva. Não foi possível atualizar o status: ${err.message}`, 'error');
+            if (!isViewStale(providerView) && dialog.open) { result.textContent = err.message; result.className = 'error'; }
           } finally {
             saving = false;
-            form.removeAttribute('aria-busy');
-            form.querySelectorAll('button, input, select').forEach(el => { el.disabled = false; });
-            $('#p-close')?.removeAttribute('disabled');
+            if (!isViewStale(providerView) && dialog.open) setBusy(false);
           }
         };
         dialog.showModal();
-        $('#p-name').focus();
+        (selectedAccount ? $('#p-display-name') : $('#p-name')).focus();
       };
-      $('#p-add').onclick = event => openProvider(choices.find(name => !configByName[name] && !providers.some(p => p.name === name)) || choices[0], event.currentTarget);
+      $('#p-add').onclick = event => openProvider(choices[0], event.currentTarget);
       content().querySelector('.providers-page').addEventListener('click', async event => {
         const connect = event.target.closest('[data-connect-provider]');
         if (connect) { openProvider(connect.dataset.connectProvider, connect); return; }
-        const disconnect = event.target.closest('[data-disconnect-oauth]');
-        if (disconnect) {
-          const name = disconnect.dataset.disconnectOauth;
-          disconnect.disabled = true;
-          try {
-            await api(`/admin/provider-oauth/${name}`, { method: 'DELETE' });
-            const [configResult, providerResult] = await Promise.all([api('/admin/provider-configs'), api('/admin/providers')]);
-            if (isViewStale(providerView)) return;
-            Object.keys(configByName).forEach(key => delete configByName[key]);
-            configResult.configs.forEach(config => { configByName[config.name] = config; });
-            providers = providerResult.providers; defaults = providerResult.defaults; renderCards();
-            toast(`Conta ${providerTitle(name)} desconectada.`, 'success');
-          } catch (err) {
-            if (!isViewStale(providerView)) { disconnect.disabled = false; toast(`Não foi possível desconectar: ${err.message}`, 'error'); }
-          }
+        const edit = event.target.closest('[data-edit-account]');
+        if (edit) {
+          const account = accounts.find(item => item.id === edit.dataset.editAccount);
+          if (account) openProvider(account.providerName, edit, account);
           return;
         }
-        const btn = event.target.closest('[data-test-provider]');
-        if (!btn || btn.disabled) return;
-        const name = btn.dataset.testProvider;
-        const result = content().querySelector(`[data-provider-result="${name}"]`);
-        btn.disabled = true; result.textContent = 'Verificando conexão...'; result.className = 'provider-test-result muted';
+        const retry = event.target.closest('[data-refresh-usage]');
+        if (retry) {
+          const account = accounts.find(item => item.id === retry.dataset.refreshUsage);
+          if (account) { retry.disabled = true; await loadUsage(account); }
+          return;
+        }
+        const disconnect = event.target.closest('[data-disconnect-account]');
+        const test = event.target.closest('[data-test-account]');
+        const button = disconnect || test;
+        if (!button || button.disabled) return;
+        const account = accounts.find(item => item.id === (disconnect ? disconnect.dataset.disconnectAccount : test.dataset.testAccount));
+        if (!account) return;
+        const result = button.closest('.provider-card').querySelector('[data-account-result]');
+        accountOperations.add(account.id);
+        button.closest('.provider-card').querySelectorAll('button').forEach(el => { el.disabled = true; });
+        const pendingMessage = disconnect ? 'Desconectando conta...' : 'Verificando conexão...';
+        testResults.set(account.id, { kind: 'muted', message: pendingMessage });
+        result.textContent = pendingMessage;
+        result.className = 'provider-test-result muted';
         try {
-          const data = await api(`/admin/provider-configs/${name}/test`, { method: 'POST' });
-          if (isViewStale(providerView)) return;
-          result.textContent = data.health.ok ? `Conexão verificada${data.health.latencyMs != null ? ` · ${fmtMs(data.health.latencyMs)}` : ''}` : 'Provedor indisponível';
-          result.className = `provider-test-result ${data.health.ok ? 'ok' : 'error'}`;
-          const status = btn.closest('.provider-card').querySelector('.provider-status');
-          status.className = `provider-status ${data.health.ok ? 'ok' : 'error'}`;
-          status.innerHTML = `<span aria-hidden="true">●</span> ${data.health.ok ? 'Online' : 'Indisponível'}`;
+          if (disconnect) {
+            await api(accountPath(account.id), { method: 'DELETE' });
+            if (isViewStale(providerView)) return;
+            accountRefreshGeneration++;
+            accounts = accounts.filter(item => item.id !== account.id);
+            usageByAccount.delete(account.id); testResults.delete(account.id); renderCards();
+            toast('Conta desconectada.', 'success');
+          } else {
+            const response = await api(accountPath(account.id) + '/test', { method: 'POST' });
+            if (isViewStale(providerView)) return;
+            applyAccountHealth(account.id, { ...response.health, checkedAt: response.health.checkedAt || new Date().toISOString() });
+            testResults.set(account.id, { kind: response.health.ok ? 'ok' : 'error', message: response.health.ok ? 'Conexão e modelos verificados' + (response.health.modelCount != null ? ' · ' + response.health.modelCount + ' modelos' : '') : response.health.message || 'Conta indisponível' });
+            renderCards();
+            loadUsage(account);
+          }
         } catch (err) {
+          if (isViewStale(providerView)) return;
+          if (!disconnect) applyAccountHealth(account.id, { ok: null, checkedAt: null, latencyMs: null });
+          testResults.set(account.id, { kind: 'error', message: err.message });
+          renderCards();
+        } finally {
+          accountOperations.delete(account.id);
           if (!isViewStale(providerView)) {
-            result.textContent = `Falha na conexão: ${err.message}`; result.className = 'provider-test-result error';
-            const status = btn.closest('.provider-card').querySelector('.provider-status');
-            status.className = 'provider-status warn'; status.innerHTML = '<span aria-hidden="true">●</span> Verificação falhou';
-            const live = providers.find(p => p.name === name);
-            if (live) live.health = {};
+            const currentCard = [...content().querySelectorAll('[data-provider-account]')].find(el => el.dataset.providerAccount === account.id);
+            currentCard?.querySelectorAll('button').forEach(el => { el.disabled = false; });
+            const focusTarget = currentCard?.querySelector(disconnect ? '[data-disconnect-account]' : '[data-test-account]') || content().querySelector('[data-connect-provider="' + account.providerName + '"]');
+            focusTarget?.focus();
           }
         }
-        finally { btn.disabled = false; }
       });
       renderCards();
+      accounts.forEach(loadUsage);
     },
     async models() {
       content().innerHTML = '<h1>Modelos</h1><p class="muted">Carregando modelos...</p>';
@@ -1096,10 +1349,10 @@
         return;
       }
       const liveRows = live.flatMap((p) =>
-        p.models.map((m) => [esc(p.name), esc(m.id), esc(m.name || ''), m.sizeBytes ? (m.sizeBytes / 1e9).toFixed(1) + ' GB' : '—']),
+        p.models.map((m) => [providerIdentity(p.name), esc(m.id), esc(m.name || ''), m.sizeBytes ? (m.sizeBytes / 1e9).toFixed(1) + ' GB' : '—']),
       );
       const costRows = configured.flatMap((p) =>
-        p.models.map((m) => [esc(p.name), esc(m.modelId), esc(m.capability), '$' + m.costPer1kInput, '$' + m.costPer1kOutput]),
+        p.models.map((m) => [providerIdentity(p.name), esc(m.modelId), esc(m.capability), '$' + m.costPer1kInput, '$' + m.costPer1kOutput]),
       );
       content().innerHTML = `
         <h1>Modelos</h1>
@@ -1166,7 +1419,7 @@
           </div>
           <label>Prompt <textarea id="test-prompt" rows="3">Responda apenas: sistema funcionando</textarea></label>
           <div class="toolbar" style="margin-top:1.25rem;">
-            <button id="test-run" class="ok" ${online.length ? '' : 'disabled'}>⚡ Executar Teste</button>
+            <button id="test-run" class="ok" ${online.length ? '' : 'disabled'}><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 10-13h-7z"/></svg>Executar Teste</button>
             <span id="test-status" class="muted">${online.length ? `${online.length} provider(s) online` : 'Nenhum provider online'}</span>
           </div>
           <div id="test-output-box" style="margin-top:1.5rem;" class="hidden">
@@ -1249,7 +1502,7 @@
       content().innerHTML = '<h1>Image Models</h1><p class="muted">Carregando...</p>';
       try {
         const { providers } = await api('/admin/image/providers');
-        const rows=providers.flatMap((p)=>p.models.map((m)=>[esc(p.name),esc(m.id),esc(m.name||m.id),esc((m.capabilities||['image']).join(', '))]));
+        const rows=providers.flatMap((p)=>p.models.map((m)=>[providerIdentity(p.name),esc(m.id),esc(m.name||m.id),esc((m.capabilities||['image']).join(', '))]));
         content().innerHTML=`<h1>Image Models</h1>${table(['Provider','Modelo','Nome','Capacidades'],rows)}`;
       } catch (err) { toast(err.message, 'error'); content().innerHTML = `<h1>Image Models</h1><p class="error">Erro: ${esc(err.message)}</p>`; }
     },
@@ -1302,20 +1555,54 @@
       try {
         const { usage } = await api('/admin/usage?days=30');
         const totalCost = usage.reduce((s, u) => s + u.cost, 0);
-        const totalTokens = usage.reduce((s, u) => s + Number(u.totalTokens), 0);
+        const totalObservedTokens = usage.reduce((s, u) => s + Number(u.observedTokens || 0), 0);
+        const totalEstimatedTokens = usage.reduce((s, u) => s + Number(u.estimatedTokens || 0), 0);
+        const totalUnreported = usage.reduce((s, u) => s + Math.max(0, Number(u.requests || 0) - Number(u.cachedHits || 0) - Number(u.observedTokenRequests || 0) - Number(u.estimatedTokenRequests || 0)), 0);
         const totalReq = usage.reduce((s, u) => s + u.requests, 0);
+        const byDay = new Map();
+        const byProv = new Map();
+        for (const u of usage) {
+          const dayKey = new Date(u.day).toISOString().slice(0, 10);
+          const dCur = byDay.get(dayKey) || { day: dayKey, requests: 0, observedTokens: 0, estimatedTokens: 0, cost: 0 };
+          dCur.requests += Number(u.requests || 0);
+          dCur.observedTokens += Number(u.observedTokens || 0);
+          dCur.estimatedTokens += Number(u.estimatedTokens || 0);
+          dCur.cost += Number(u.cost || 0);
+          byDay.set(dayKey, dCur);
+
+          const pCur = byProv.get(u.provider) || { name: u.provider, requests: 0, observedTokens: 0, estimatedTokens: 0, estimatedCost: 0 };
+          pCur.requests += Number(u.requests || 0);
+          pCur.observedTokens += Number(u.observedTokens || 0);
+          pCur.estimatedTokens += Number(u.estimatedTokens || 0);
+          pCur.estimatedCost += Number(u.cost || 0);
+          byProv.set(u.provider, pCur);
+        }
+        const dailySeries = Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));
         content().innerHTML = `
           <h1>Tokens &amp; Custos (30 dias)</h1>
           <div class="cards">
-            ${card('Requisicoes', totalReq)}
-            ${card('Tokens', totalTokens)}
-            ${card('Custo (USD)', '$' + totalCost.toFixed(4))}
+            ${card('Requisicoes', totalReq.toLocaleString('pt-BR'))}
+            ${card('Tokens reportados', totalObservedTokens.toLocaleString('pt-BR'))}
+            ${card('Tokens estimados', totalEstimatedTokens.toLocaleString('pt-BR'))}
+            ${card('Chamadas sem medição', totalUnreported.toLocaleString('pt-BR'))}
+            ${card('Custo estimado (USD)', '$' + totalCost.toFixed(4))}
+          </div>
+          <div class="section" style="margin-top:1.25rem;">
+            ${renderTelemetryCharts(dailySeries, Array.from(byProv.values()), {
+              requests24h: dailySeries.length ? dailySeries[dailySeries.length - 1].requests : 0,
+              tokens24h: dailySeries.length ? dailySeries[dailySeries.length - 1].observedTokens : 0,
+              requests: totalReq,
+              observedTokens: totalObservedTokens,
+              estimatedTokens: totalEstimatedTokens,
+              cost: totalCost,
+            })}
           </div>
           ${table(
-            ['Dia', 'Tenant', 'Capacidade', 'Provider', 'Requisicoes', 'Cache', 'Tokens', 'Custo'],
+            ['Dia', 'Tenant', 'Capacidade', 'Provider', 'Requisicoes', 'Cache', 'Tokens reportados', 'Tokens estimados', 'Sem medição', 'Custo estimado'],
             usage.map((u) => [
               new Date(u.day).toLocaleDateString('pt-BR'), esc(u.tenant?.name || u.tenantId),
-              esc(u.capability), esc(u.provider), u.requests, u.cachedHits, esc(u.totalTokens),
+              esc(u.capability), esc(u.provider), u.requests, u.cachedHits, esc(u.observedTokens || 0), esc(u.estimatedTokens || 0),
+              Math.max(0, Number(u.requests || 0) - Number(u.cachedHits || 0) - Number(u.observedTokenRequests || 0) - Number(u.estimatedTokenRequests || 0)),
               '$' + u.cost.toFixed(4),
             ]),
           )}`;
@@ -1349,12 +1636,13 @@
         content().innerHTML = `
           <h1>Logs de requisicoes</h1>
           ${table(
-            ['Quando', 'Capacidade', 'Provider', 'Modelo', 'Cache', 'Status', 'Tokens', 'Duracao', 'Custo'],
+            ['Quando', 'Capacidade', 'Provider', 'Modelo', 'Cache', 'Status', 'Uso de tokens', 'Duracao', 'Custo estimado'],
             logs.map((l) => [
               fmtDate(l.createdAt), esc(l.capability), esc(l.provider), esc(l.model),
               l.cached ? '<span class="ok">hit</span>' : '—',
               badge(l.success, 'ok', l.errorCode || 'erro'),
-              l.totalTokens, fmtMs(l.durationMs), '$' + l.cost.toFixed(5),
+              l.tokenUsageSource === 'observed' ? l.totalTokens + ' reportados' : l.tokenUsageSource === 'estimated' ? '~' + l.totalTokens + ' estimados' : l.cached ? 'Cache (sem chamada ao provider)' : 'Não informado',
+              fmtMs(l.durationMs), '$' + l.cost.toFixed(5),
             ]),
           )}`;
       } catch (err) { toast(err.message, 'error'); content().innerHTML = `<h1>Logs</h1><p class="error">Erro: ${esc(err.message)}</p>`; }
@@ -1405,7 +1693,7 @@
         content().innerHTML = `<h1>API Keys</h1><p class="error">Erro ao carregar: ${esc(err.message)}</p>`;
         return;
       }
-      const scopes = ['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'workflow', 'admin'];
+      const scopes = ['text', 'chat', 'image', 'video', 'vision', 'embed', 'ocr', 'audio', 'workflow', 'admin'];
 
       content().innerHTML = `<h1>API Keys</h1><p class="muted">Crie credenciais independentes por projeto, ambiente e capacidade.</p>
         <div class="card section"><h2>Nova chave</h2><div class="form-grid">
@@ -1575,11 +1863,11 @@
         try {
           const { logs } = await api(`/admin/logs?limit=50&apiKeyId=${id}`);
           const html = logs.length === 0 ? '<p class="muted">Nenhuma requisição encontrada para esta chave.</p>' : table(
-            ['Quando', 'Cap', 'Provider', 'Modelo', 'Status', 'Tokens', 'Tempo'],
+            ['Quando', 'Cap', 'Provider', 'Modelo', 'Status', 'Uso de tokens', 'Tempo'],
             logs.map(l => [
               fmtDate(l.createdAt), esc(l.capability), esc(l.provider), esc(l.model),
               badge(l.success, 'ok', l.errorCode || 'erro'),
-              l.totalTokens, fmtMs(l.durationMs)
+              l.tokenUsageSource === 'observed' ? l.totalTokens + ' reportados' : l.tokenUsageSource === 'estimated' ? '~' + l.totalTokens + ' estimados' : l.cached ? 'Cache' : 'Não informado', fmtMs(l.durationMs)
             ])
           );
           document.getElementById('key-logs-container').innerHTML = html;
@@ -1608,7 +1896,7 @@
       try { ({workflows}=await api('/admin/workflows')); }
       catch(err){ toast(err.message,'error'); content().innerHTML=`<h1>Workflows ComfyUI</h1><p class="error">Erro ao carregar workflows: ${esc(err.message)}</p>`; return; }
       content().innerHTML=`<h1>Workflows ComfyUI</h1><div class="card section"><h2>Importar workflow API JSON</h2><div class="toolbar"><label>Nome <input id="wf-name" placeholder="Produto realista SDXL" /></label><label>Arquivo JSON <input id="wf-file" type="file" accept="application/json,.json" /></label><button id="wf-import">Importar</button></div><p id="wf-status" class="muted">Exporte no ComfyUI usando “Save (API Format)”.</p></div>
-        ${table(['Nome','Status','Padrão','Atualizado','Ações'],workflows.map(w=>[esc(w.name),badge(w.enabled,'ativo','desativado'),w.isDefault?'★ padrão':'—',fmtDate(w.updatedAt),`<button class="ghost" data-default="${w.id}">Padrão</button> <button class="ghost" data-toggle="${w.id}" data-enabled="${w.enabled}">${w.enabled?'Desativar':'Ativar'}</button> <button class="ghost" data-copy="${w.id}">Duplicar</button> <button class="ghost" data-export="${w.id}">Exportar</button>`]))}`;
+        ${table(['Nome','Status','Padrão','Atualizado','Ações'],workflows.map(w=>[esc(w.name),badge(w.enabled,'ativo','desativado'),w.isDefault?favoriteIcon+' Padrão':'—',fmtDate(w.updatedAt),`<button class="ghost" data-default="${w.id}">Padrão</button> <button class="ghost" data-toggle="${w.id}" data-enabled="${w.enabled}">${w.enabled?'Desativar':'Ativar'}</button> <button class="ghost" data-copy="${w.id}">Duplicar</button> <button class="ghost" data-export="${w.id}">Exportar</button>`]))}`;
       $('#wf-import').onclick=async()=>{const f=$('#wf-file').files[0],st=$('#wf-status');if(!f){st.textContent='Selecione um JSON.';st.className='error';return}try{await api('/admin/workflows/import',{method:'POST',body:{name:$('#wf-name').value||f.name.replace(/\.json$/i,''),graph:JSON.parse(await f.text())}});pages.workflowManager();}catch(e){st.textContent=e.message;st.className='error';}};
       content().querySelectorAll('[data-default]').forEach(b=>b.onclick=async()=>{await api(`/admin/workflows/${b.dataset.default}`,{method:'PATCH',body:{isDefault:true}});pages.workflowManager()});
       content().querySelectorAll('[data-toggle]').forEach(b=>b.onclick=async()=>{await api(`/admin/workflows/${b.dataset.toggle}`,{method:'PATCH',body:{enabled:b.dataset.enabled!=='true'}});pages.workflowManager()});
@@ -1623,7 +1911,7 @@
       try { ({prompts}=await api('/admin/prompts')); }
       catch(err){ toast(err.message,'error'); content().innerHTML=`<h1>Biblioteca de Prompts</h1><p class="error">Erro ao carregar prompts: ${esc(err.message)}</p>`; return; }
       const categories=['produtos','marketing','imagem','video','seo','lojas','crm','whatsapp','catalogo','ocr'];
-      content().innerHTML=`<h1>Biblioteca de Prompts</h1><p class="muted">Prompts reutilizáveis, categorizados e versionados.</p><div class="card section"><h2>Novo prompt</h2><div class="form-grid"><label>Nome <input id="pm-name" /></label><label>Categoria <select id="pm-category">${categories.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></label><label class="inline-check"><input id="pm-favorite" type="checkbox"/> Favorito</label><label class="inline-check"><input id="pm-shared" type="checkbox"/> Compartilhado</label></div><label>Template <textarea id="pm-template" placeholder="Use {{variavel}} para campos dinâmicos"></textarea></label><button id="pm-save">Salvar prompt</button><span id="pm-status" class="muted"></span></div><div class="image-grid">${prompts.map(p=>`<article class="card"><strong>${p.favorite?'★ ':''}${esc(p.name)}</strong><span class="badge">${esc(p.category||'geral')}</span><small>v${p.version} · ${p.shared?'compartilhado':'privado'}</small><pre class="code">${esc(p.template.slice(0,500))}</pre><div><button class="ghost" data-fav="${p.id}" data-value="${p.favorite}">${p.favorite?'Desfavoritar':'Favoritar'}</button> <button class="ghost" data-del-prompt="${p.id}">Excluir</button></div></article>`).join('')||'<p class="empty-state">Nenhum prompt salvo.</p>'}</div>`;
+      content().innerHTML=`<h1>Biblioteca de Prompts</h1><p class="muted">Prompts reutilizáveis, categorizados e versionados.</p><div class="card section"><h2>Novo prompt</h2><div class="form-grid"><label>Nome <input id="pm-name" /></label><label>Categoria <select id="pm-category">${categories.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></label><label class="inline-check"><input id="pm-favorite" type="checkbox"/> Favorito</label><label class="inline-check"><input id="pm-shared" type="checkbox"/> Compartilhado</label></div><label>Template <textarea id="pm-template" placeholder="Use {{variavel}} para campos dinâmicos"></textarea></label><button id="pm-save">Salvar prompt</button><span id="pm-status" class="muted"></span></div><div class="image-grid">${prompts.map(p=>`<article class="card"><strong>${p.favorite?favoriteIcon+' ':''}${esc(p.name)}</strong><span class="badge">${esc(p.category||'geral')}</span><small>v${p.version} · ${p.shared?'compartilhado':'privado'}</small><pre class="code">${esc(p.template.slice(0,500))}</pre><div><button class="ghost" data-fav="${p.id}" data-value="${p.favorite}">${p.favorite?'Desfavoritar':'Favoritar'}</button> <button class="ghost" data-del-prompt="${p.id}">Excluir</button></div></article>`).join('')||'<p class="empty-state">Nenhum prompt salvo.</p>'}</div>`;
       $('#pm-save').onclick=async()=>{const st=$('#pm-status');try{await api('/admin/prompts',{method:'POST',body:{name:$('#pm-name').value,category:$('#pm-category').value,template:$('#pm-template').value,favorite:$('#pm-favorite').checked,shared:$('#pm-shared').checked}});pages.prompts();}catch(e){st.textContent=e.message;st.className='error';}};
       content().querySelectorAll('[data-fav]').forEach(b=>b.onclick=async()=>{await api(`/admin/prompts/${b.dataset.fav}`,{method:'PATCH',body:{favorite:b.dataset.value!=='true'}});pages.prompts()});
       content().querySelectorAll('[data-del-prompt]').forEach(b=>b.onclick=async()=>{await api(`/admin/prompts/${b.dataset.delPrompt}`,{method:'DELETE'});pages.prompts()});
@@ -1732,6 +2020,7 @@
     providers: 'Provedores de IA',
     keys: 'API Keys & Segurança',
     playground: 'Playground de Inferência',
+    audio: 'Estúdio de Áudio',
     mission: 'Mission Viewer',
     logs: 'Logs de Requisições',
     health: 'Health Check Telemetria',
@@ -1757,8 +2046,17 @@
     let hash = projectMatch ? 'project' : routeHash;
     if (hash === 'login') { location.hash = '#/'; hash = 'home'; }
     document.querySelectorAll('.sidebar nav a').forEach((a) => {
-      a.classList.toggle('active', a.getAttribute('href') === `#/${hash}`);
-      if (a.classList.contains('active')) a.closest('.nav-group')?.classList.add('open');
+      const active =
+        a.getAttribute('href') === `#/${hash}` ||
+        (hash === 'project' && a.getAttribute('href') === '#/projects');
+      a.classList.toggle('active', active);
+      if (active) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+      if (active) {
+        const group = a.closest('.nav-group');
+        group?.classList.add('open');
+        group?.querySelector('.nav-group-toggle')?.setAttribute('aria-expanded', 'true');
+      }
     });
 
     // Fechar drawer mobile ao navegar
@@ -1766,6 +2064,8 @@
     const backdrop = $('#sidebar-backdrop');
     if (sidebar) sidebar.classList.remove('mobile-open');
     if (backdrop) backdrop.classList.add('hidden');
+    if (sidebarToggle) sidebarToggle.setAttribute('aria-expanded', 'false');
+    if (sidebarToggle) sidebarToggle.setAttribute('aria-label', 'Abrir menu de navegação');
 
     // Atualizar breadcrumb no cabeçalho
     const bcTitle = $('#bc-page-title');
@@ -1954,17 +2254,145 @@
       content().innerHTML = `<h1>Prometheus Metrics</h1><p class="error">Erro ao carregar: ${esc(e.message)}</p>`;
     }
   };
+
+  pages.audio = async () => {
+    content().innerHTML = `<section class="section audio-studio"><h1>Estúdio de Áudio Open-Source</h1><p class="muted">Suíte completa de voz local na VPS (estilo ElevenLabs Open-Source): Transcrição (Faster-Whisper STT), Síntese de Voz Neural (Kokoro-82M / eSpeak DSP), Texto produzido por IA em Voz, Modulador de Voz Speech-to-Speech e Conversa por Áudio.</p><div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;"><p id="audio-engine-status" class="badge muted" role="status" style="margin:0;">Verificando engines locais…</p><span id="audio-engine-models" class="badge muted" style="font-family:var(--font-mono);">STT: faster-whisper · TTS: kokoro-82m / dsp</span></div><label>Projeto<select id="audio-project-select"><option value="">Área do tenant</option></select></label>
+      <div class="audio-grid">
+        <article class="card"><h2>Transcrever</h2><label>Arquivo<input id="audio-stt-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm"></label><div class="button-row"><button id="audio-record-start" class="ghost">Gravar</button><button id="audio-record-stop" class="ghost" disabled>Parar</button><button id="audio-transcribe">Transcrever</button></div><p id="audio-record-state" class="muted" aria-live="polite"></p><div id="audio-transcript" class="code audio-output" aria-live="polite">Selecione ou grave um áudio.</div></article>
+        <article class="card"><h2>Gerar fala & IA em Voz</h2><label>Texto ou Prompt para a IA<textarea id="audio-speech-text" rows="4" maxlength="10000" placeholder="Digite o texto para falar ou uma instrução para a IA criar e narrar em português"></textarea></label><div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;"><label>Voz Open-Source<select id="audio-voice-select"><option value="pf_dora">Dora · PT-BR (Feminina)</option><option value="pm_alex">Alex · PT-BR (Masculino)</option><option value="pm_santa">Narrador · PT-BR (Grave)</option><option value="af_heart">Heart · EN-US (Feminina)</option><option value="af_bella">Bella · EN-US (Expressiva)</option><option value="am_adam">Adam · EN-US (Masculino)</option></select></label><label>Timbre / Perfil DSP<select id="audio-profile-select"><option value="natural">Natural (Padrão)</option><option value="studio_warm">Estúdio Quente (Podcast)</option><option value="deep_voice">Voz Grave & Profunda</option><option value="bright_clear">Clara & Cristalina</option><option value="radio">Broadcast / Rádio</option></select></label></div><label>Velocidade<select id="audio-speed-select"><option value="1">1.0x (Normal)</option><option value="0.85">0.85x (Pausada)</option><option value="1.15">1.15x (Dinâmica)</option><option value="1.3">1.30x (Rápida)</option></select></label><div class="button-row" style="display:flex;gap:0.5rem;flex-wrap:wrap;"><button id="audio-speech-generate">Converter Texto em Voz</button><button id="audio-ai-speech-generate" class="ghost" style="border-color:rgba(6,182,212,0.45);color:#38bdf8;">✨ IA Produzir Texto + Voz</button></div><div id="audio-speech-result" class="audio-output" aria-live="polite"></div></article>
+        <article class="card"><h2>Modificar Voz (Speech-to-Speech)</h2><p class="muted">Recebe um áudio gravado e transforma a fala na voz e timbre selecionados (estilo Voice Changer).</p><label>Áudio de entrada<input id="audio-transform-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm"></label><button id="audio-transform-run">Transformar Voz</button><div id="audio-transform-result" class="audio-output" aria-live="polite"></div></article>
+        <article class="card"><h2>Conversa por áudio</h2><p class="muted">Um turno: STT → modelo local → TTS.</p><label>Instrução<textarea id="audio-conversation-prompt" rows="3">Responda com clareza e em português brasileiro.</textarea></label><label>Áudio<input id="audio-conversation-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm"></label><button id="audio-conversation-run">Enviar turno</button><div id="audio-conversation-result" class="audio-output" aria-live="polite"></div></article>
+        <article class="card"><h2>Biblioteca de amostras autorizadas</h2><p class="muted">Armazenamento com consentimento. Clonagem de voz continua desativada até um engine passar pelo benchmark da VPS.</p><label>Nome<input id="audio-voice-name" maxlength="120"></label><label>Amostra<input id="audio-voice-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm"></label><label class="audio-consent"><input id="audio-voice-consent" type="checkbox"> Confirmo que tenho autorização para armazenar esta amostra.</label><button id="audio-voice-save" class="ghost">Salvar amostra</button><div id="audio-voice-list" class="audio-output" aria-live="polite">Carregando…</div></article>
+      </div><div class="section"><h2>Áudios gerados</h2><div id="audio-assets" class="audio-output">Carregando…</div></div></section>`;
+    const currentView = viewController;
+    const audioObjectUrls = new Set();
+    let activeRecorder;
+    let activeStream;
+    currentView.signal.addEventListener('abort', () => {
+      if (activeRecorder?.state === 'recording') activeRecorder.stop();
+      activeStream?.getTracks().forEach((track) => track.stop());
+      audioObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    }, { once: true });
+    try {
+      const { projects } = await api('/admin/projects');
+      $('#audio-project-select').innerHTML += projects.map((project) => `<option value="${esc(project.id)}">${esc(project.name)}</option>`).join('');
+      $('#audio-project-select').addEventListener('change', () => { refreshVoices().catch(() => {}); refreshAssets().catch(() => {}); });
+    } catch { /* Seleção de projeto é opcional para chaves sem acesso administrativo. */ }
+    const projectPayload = () => $('#audio-project-select')?.value ? { projectId: $('#audio-project-select').value } : {};
+    const readAudio = async (file) => {
+      if (!file) throw new Error('Selecione um arquivo de áudio.');
+      if (file.size > 18 * 1024 * 1024) throw new Error('O limite por arquivo é 18 MiB.');
+      return fileDataUrl(file);
+    };
+    const pollAudioJob = async (jobId, output) => {
+      output.textContent = `Job ${jobId} · aguardando processamento local…`;
+      for (let attempt = 0; attempt < 120; attempt++) {
+        if (currentView.signal.aborted) return null;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const status = await api(`/v1/jobs/${encodeURIComponent(jobId)}`);
+        if (status.status === 'completed') return status.result?.result ?? status.result;
+        if (status.status === 'failed') throw new Error(status.error || 'O job de áudio falhou.');
+        output.textContent = `Processando localmente · ${status.status}`;
+      }
+      throw new Error('O job segue em andamento; consulte Filas e jobs.');
+    };
+    const enqueueAudio = async (path, payload, output) => pollAudioJob((await api(path, { method: 'POST', body: payload })).jobId, output);
+    const renderAudioPlayer = async (assetId, output) => {
+      const response = await fetch(`/v1/audio/assets/${encodeURIComponent(assetId)}`, { headers: { authorization: `Bearer ${token()}` }, signal: currentView.signal });
+      if (!response.ok) throw new Error(`Não foi possível abrir o áudio (HTTP ${response.status}).`);
+      const objectUrl = URL.createObjectURL(await response.blob()); audioObjectUrls.add(objectUrl);
+      output.innerHTML = `<audio controls src="${objectUrl}"></audio><a href="${objectUrl}" download="audio-${esc(assetId)}.wav">Baixar áudio</a>`;
+    };
+    const refreshAssets = async () => {
+      const project = $('#audio-project-select')?.value;
+      const { assets } = await api('/v1/audio/assets' + (project ? `?projectId=${encodeURIComponent(project)}` : ''));
+      $('#audio-assets').innerHTML = `<div id="audio-assets-player"></div>` + (assets.length ? assets.map((asset) => { const m = asset.metadata || {}; const label = m.mode === 'ai-speech' ? '✨ IA → Voz' : m.mode === 'speech-to-speech' ? '🎙️ Modulador STS' : '🗣️ Síntese TTS'; const voiceTag = m.voice ? ` · ${esc(m.voice)}` : ''; const profileTag = m.profile && m.profile !== 'natural' ? ` (${esc(m.profile)})` : ''; return `<div class="audio-voice-row"><span><strong>${label}</strong>${voiceTag}${profileTag} · <small>${esc(fmtDate(asset.createdAt))}</small></span><span><button class="ghost" data-audio-play="${esc(asset.id)}">Reproduzir</button> <button class="ghost" data-audio-delete-asset="${esc(asset.id)}">Excluir</button></span></div>`; }).join('') : '<p class="muted">Nenhum áudio gerado ainda.</p>');
+      $('#audio-assets').querySelectorAll('[data-audio-play]').forEach((button) => button.addEventListener('click', async () => { try { await renderAudioPlayer(button.dataset.audioPlay, $('#audio-assets-player') || $('#audio-assets')); } catch (error) { toast(error.message, 'error'); } }));
+      $('#audio-assets').querySelectorAll('[data-audio-delete-asset]').forEach((button) => button.addEventListener('click', async () => { try { await api(`/v1/audio/assets/${encodeURIComponent(button.dataset.audioDeleteAsset)}`, { method: 'DELETE' }); await refreshAssets(); } catch (error) { toast(error.message, 'error'); } }));
+    };
+    const refreshVoices = async () => {
+      const project = $('#audio-project-select')?.value;
+      const { voices } = await api('/v1/audio/voices' + (project ? `?projectId=${encodeURIComponent(project)}` : ''));
+      $('#audio-voice-list').innerHTML = voices.length ? voices.map((voice) => `<div class="audio-voice-row"><span>${esc(voice.name)} <small>${esc(fmtDate(voice.createdAt))}</small></span><span><button class="ghost" data-audio-play-voice="${esc(voice.id)}">Ouvir amostra</button> <button class="ghost" data-audio-delete-voice="${esc(voice.id)}">Excluir</button></span></div>`).join('') : '<p class="muted">Nenhuma amostra salva.</p>';
+      $('#audio-voice-list').querySelectorAll('[data-audio-play-voice]').forEach((button) => button.addEventListener('click', async () => { try { await renderProtectedSample(button.dataset.audioPlayVoice, $('#audio-voice-list')); } catch (error) { toast(error.message, 'error'); } }));
+      $('#audio-voice-list').querySelectorAll('[data-audio-delete-voice]').forEach((button) => button.addEventListener('click', async () => {
+        try { await api(`/v1/audio/voices/${encodeURIComponent(button.dataset.audioDeleteVoice)}`, { method: 'DELETE' }); await refreshVoices(); }
+        catch (error) { toast(error.message, 'error'); }
+      }));
+    };
+    const renderProtectedSample = async (voiceId, output) => {
+      const response = await fetch(`/v1/audio/voices/${encodeURIComponent(voiceId)}/sample`, { headers: { authorization: `Bearer ${token()}` }, signal: currentView.signal });
+      if (!response.ok) throw new Error(`Amostra indisponível (HTTP ${response.status}).`);
+      const url = URL.createObjectURL(await response.blob()); audioObjectUrls.add(url); output.innerHTML = `<audio controls src="${url}"></audio>`;
+    };
+    try { await Promise.all([refreshVoices(), refreshAssets()]); } catch (error) { $('#audio-voice-list').textContent = `Biblioteca indisponível: ${error.message}`; }
+    try {
+      const health = await api('/v1/audio/health');
+      $('#audio-engine-status').textContent = health.available ? 'Engine local pronta (STT + TTS + Modulador ativos)' : 'Engine local indisponível ou pesos ausentes';
+      if ($('#audio-engine-models') && health.available) $('#audio-engine-models').textContent = `STT: ${health.stt?.engine || 'faster-whisper'} (${health.stt?.model || 'base'}) · TTS: ${health.tts?.engine || 'kokoro-82m'} · ${Array.isArray(health.voices) ? health.voices.length : 6} vozes`;
+      $('#audio-engine-status').className = `badge ${health.available ? 'ok' : 'err'}`;
+    } catch { $('#audio-engine-status').textContent = 'Status da engine local indisponível'; }
+    $('#audio-transcribe').onclick = async () => {
+      const output = $('#audio-transcript');
+      try { const result = await enqueueAudio('/v1/audio/transcriptions', { ...projectPayload(), audio: await readAudio($('#audio-stt-file').files[0]) }, output); if (result) output.textContent = result.text || 'Nenhuma fala reconhecida.'; }
+      catch (error) { output.textContent = error.message; }
+    };
+    $('#audio-speech-generate').onclick = async () => {
+      const output = $('#audio-speech-result');
+      try { const result = await enqueueAudio('/v1/audio/speech', { ...projectPayload(), text: $('#audio-speech-text').value, voice: $('#audio-voice-select').value, profile: $('#audio-profile-select')?.value || 'natural', speed: Number($('#audio-speed-select')?.value || 1) }, output); if (result?.assetId) { await renderAudioPlayer(result.assetId, output); await refreshAssets(); } }
+      catch (error) { output.textContent = error.message; }
+    };
+    $('#audio-ai-speech-generate').onclick = async () => {
+      const output = $('#audio-speech-result');
+      try { const result = await enqueueAudio('/v1/audio/ai-speech', { ...projectPayload(), prompt: $('#audio-speech-text').value, voice: $('#audio-voice-select').value, profile: $('#audio-profile-select')?.value || 'natural', speed: Number($('#audio-speed-select')?.value || 1) }, output); if (result) { output.innerHTML = `<p style="margin:0 0 0.5rem;"><strong>Texto IA:</strong> ${esc(result.text || '')}</p><div class="audio-player-box"></div>`; if (result.assetId) await renderAudioPlayer(result.assetId, output.querySelector('.audio-player-box') || output); await refreshAssets(); } }
+      catch (error) { output.textContent = error.message; }
+    };
+    $('#audio-transform-run').onclick = async () => {
+      const output = $('#audio-transform-result');
+      try { const result = await enqueueAudio('/v1/audio/transform', { ...projectPayload(), audio: await readAudio($('#audio-transform-file').files[0]), voice: $('#audio-voice-select').value, profile: $('#audio-profile-select')?.value || 'natural', speed: Number($('#audio-speed-select')?.value || 1) }, output); if (result) { output.innerHTML = `<p style="margin:0 0 0.5rem;"><strong>Fala detectada:</strong> ${esc(result.transcript || 'Modulação direta DSP')}</p><div class="audio-player-box"></div>`; if (result.assetId) await renderAudioPlayer(result.assetId, output.querySelector('.audio-player-box') || output); await refreshAssets(); } }
+      catch (error) { output.textContent = error.message; }
+    };
+    $('#audio-conversation-run').onclick = async () => {
+      const output = $('#audio-conversation-result');
+      try { const result = await enqueueAudio('/v1/audio/conversations', { ...projectPayload(), audio: await readAudio($('#audio-conversation-file').files[0]), prompt: $('#audio-conversation-prompt').value, voice: $('#audio-voice-select').value, profile: $('#audio-profile-select')?.value || 'natural', speed: Number($('#audio-speed-select')?.value || 1) }, output); if (result) { output.innerHTML = `<p><strong>Você:</strong> ${esc(result.transcript)}</p><p><strong>Resposta:</strong> ${esc(result.answer)}</p><div class="audio-player-box"></div>`; if (result.speech?.assetId) await renderAudioPlayer(result.speech.assetId, output.querySelector('.audio-player-box') || output); await refreshAssets(); } }
+      catch (error) { output.textContent = error.message; }
+    };
+    $('#audio-voice-save').onclick = async () => {
+      try {
+        if (!$('#audio-voice-consent').checked) throw new Error('Confirme a autorização antes de salvar a amostra.');
+        await api('/v1/audio/voices', { method: 'POST', body: { ...projectPayload(), name: $('#audio-voice-name').value, audio: await readAudio($('#audio-voice-file').files[0]), authorized: true } });
+        await refreshVoices(); toast('Amostra salva com autorização.', 'success');
+      } catch (error) { toast(error.message, 'error'); }
+    };
+    let recorded = [];
+    $('#audio-record-start').onclick = async () => {
+      try {
+        if (!isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('A gravação exige uma origem HTTPS segura.');
+        activeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        activeRecorder = new MediaRecorder(activeStream); recorded = [];
+        activeRecorder.ondataavailable = (event) => { if (event.data.size) recorded.push(event.data); };
+        activeRecorder.onstop = () => { activeStream?.getTracks().forEach((track) => track.stop()); if (currentView.signal.aborted) return; const blob = new Blob(recorded, { type: activeRecorder.mimeType || 'audio/webm' }); const file = new File([blob], 'gravacao.webm', { type: blob.type }); const transfer = new DataTransfer(); transfer.items.add(file); $('#audio-stt-file').files = transfer.files; $('#audio-record-state').textContent = 'Gravação pronta para transcrever.'; };
+        activeRecorder.start(); $('#audio-record-start').disabled = true; $('#audio-record-stop').disabled = false; $('#audio-record-state').textContent = 'Gravando…';
+      } catch (error) { $('#audio-record-state').textContent = `Microfone indisponível: ${error.message}`; }
+    };
+    $('#audio-record-stop').onclick = () => { activeRecorder?.stop(); $('#audio-record-start').disabled = false; $('#audio-record-stop').disabled = true; };
+  };
   pages.tenants = pages.settings;
 
   // Controles de interface mobile & Áudio
   const sidebarToggle = $('#sidebar-toggle');
   const sidebarBackdrop = $('#sidebar-backdrop');
   if (sidebarToggle) {
+    sidebarToggle.setAttribute('aria-controls', 'sidebar');
+    sidebarToggle.setAttribute('aria-expanded', 'false');
     sidebarToggle.addEventListener('click', () => {
       const sb = $('#sidebar');
       const bd = $('#sidebar-backdrop');
-      if (sb) sb.classList.toggle('mobile-open');
-      if (bd) bd.classList.toggle('hidden');
+      const open = !sb?.classList.contains('mobile-open');
+      if (sb) sb.classList.toggle('mobile-open', open);
+      if (bd) bd.classList.toggle('hidden', !open);
+      sidebarToggle.setAttribute('aria-expanded', String(open));
+      sidebarToggle.setAttribute('aria-label', open ? 'Fechar menu de navegação' : 'Abrir menu de navegação');
     });
   }
   if (sidebarBackdrop) {
@@ -1972,6 +2400,8 @@
       const sb = $('#sidebar');
       if (sb) sb.classList.remove('mobile-open');
       sidebarBackdrop.classList.add('hidden');
+      sidebarToggle?.setAttribute('aria-expanded', 'false');
+      sidebarToggle?.setAttribute('aria-label', 'Abrir menu de navegação');
     });
   }
 

@@ -234,6 +234,15 @@ export const audioSchema = z.object({
   ...common,
 });
 
+const audioBytes = z.string().min(1).max(26_000_000);
+export const audioTranscriptionSchema = z.object({ audio: audioBytes, language: z.string().min(2).max(16).default('pt'), ...common });
+export const audioVoiceProfileSchema = z.enum(['natural', 'studio_warm', 'deep_voice', 'bright_clear', 'radio']).default('natural');
+export const audioSpeechSchema = z.object({ text: z.string().trim().min(1).max(10_000), voice: z.string().min(1).max(128).default('pf_dora'), profile: audioVoiceProfileSchema, speed: z.number().min(0.5).max(2.0).default(1.0), engine: z.enum(['kokoro']).default('kokoro'), ...common });
+export const audioAiSpeechSchema = z.object({ prompt: z.string().trim().min(1).max(20_000), system: z.string().trim().max(10_000).optional(), voice: z.string().min(1).max(128).default('pf_dora'), profile: audioVoiceProfileSchema, speed: z.number().min(0.5).max(2.0).default(1.0), ...common });
+export const audioTransformSchema = z.object({ audio: audioBytes, voice: z.string().min(1).max(128).default('pf_dora'), profile: audioVoiceProfileSchema, speed: z.number().min(0.5).max(2.0).default(1.0), language: z.string().min(2).max(16).default('pt'), ...common });
+export const audioConversationSchema = z.object({ audio: audioBytes, prompt: z.string().trim().min(1).max(20_000), language: z.string().min(2).max(16).default('pt'), voice: z.string().min(1).max(128).default('pf_dora'), profile: audioVoiceProfileSchema, speed: z.number().min(0.5).max(2.0).default(1.0), ...common });
+export const voiceSampleSchema = z.object({ audio: audioBytes, name: z.string().trim().min(1).max(120), authorized: z.literal(true), projectId: z.string().min(1).max(128).optional() });
+
 export const missionSchema = z.object({
   objective: z.string().min(1).max(50_000),
   context: z.string().max(100_000).optional(),

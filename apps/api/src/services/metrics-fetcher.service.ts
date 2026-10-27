@@ -16,6 +16,8 @@ export function setupMetricsFetcher(): void {
             provider: providerName,
             createdAt: { gte: since },
             success: true,
+            cached: false,
+            tokenUsageSource: 'observed',
           },
           select: {
             durationMs: true,
@@ -29,12 +31,14 @@ export function setupMetricsFetcher(): void {
             provider: providerName,
             createdAt: { gte: since },
             success: false,
+            cached: false,
           },
         }),
         prisma.requestLog.count({
           where: {
             provider: providerName,
             createdAt: { gte: since },
+            cached: false,
           },
         }),
       ]);
