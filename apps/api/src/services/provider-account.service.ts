@@ -103,6 +103,7 @@ export function sanitizeProviderEndpoint(value: string | null | undefined): stri
 }
 
 const validAccountTiers = new Set([
+  'go',
   'free',
   'tier1',
   'plus',

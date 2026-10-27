@@ -771,13 +771,13 @@
       if (isViewStale(providerView)) return;
       const configByName = Object.fromEntries(configs.map((c) => [c.name, c]));
       const catalog = [
-        ['openai', 'OpenAI', 'GPT · texto, visão e imagens', 'cloud'],
-        ['anthropic', 'Anthropic', 'Claude · texto e visão', 'cloud'],
-        ['xai', 'xAI', 'Grok · texto e visão', 'cloud'],
-        ['gemini', 'Google Gemini', 'Gemini · modelos multimodais', 'cloud'],
-        ['groq', 'Groq', 'Inferência de modelos abertos', 'cloud'],
-        ['openrouter', 'OpenRouter', 'Vários modelos em uma API', 'cloud'],
-        ['ollama', 'Ollama', 'Modelos no seu servidor', 'local'],
+        ['openai', 'OpenAI · ChatGPT & Codex', 'Contas Go, Free, Plus, Pro & Ultra · Tokens Codex e GPT', 'cloud'],
+        ['anthropic', 'Anthropic · Claude & Claude Code', 'Contas Free, Plus, Pro & Max · Tokens Claude Code', 'cloud'],
+        ['xai', 'xAI · Grok', 'Contas Free, Plus, Pro & Ultra · Tokens Grok', 'cloud'],
+        ['gemini', 'Google Gemini · Antigravity', 'Contas Free, Go, Plus, Pro & Ultra · Tokens Antigravity', 'cloud'],
+        ['groq', 'Groq · LPU', 'Contas Free, Plus & Pro · Inferência de modelos abertos', 'cloud'],
+        ['openrouter', 'OpenRouter · Multi-Hub', 'Contas Free, Plus, Pro & Ultra · Vários modelos em uma API', 'cloud'],
+        ['ollama', 'Ollama', 'Modelos Open Source no seu servidor 24/7', 'local'],
         ['huggingface', 'Hugging Face', 'Modelos e inferência na nuvem', 'cloud'],
         ['cloudflare', 'Cloudflare', 'Workers AI · inferência na nuvem', 'cloud'],
         ['lmstudio', 'LM Studio', 'Servidor local de modelos', 'local'],
@@ -843,15 +843,24 @@
       };
       const providerTitle = (name) => details[name]?.title || name;
       const programmingBridgeProfiles = {
-        openai: { label: 'OpenAI Codex · Tokens de Programação', defaultTier: 'pro', defaultModel: 'gpt-4o', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
-        anthropic: { label: 'Anthropic Claude Code · Tokens de Programação', defaultTier: 'pro', defaultModel: 'claude-3-5-sonnet-20241022', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
-        gemini: { label: 'Google Gemini Antigravity · Tokens de Programação', defaultTier: 'ultra', defaultModel: 'gemini-1.5-pro', quotaLabel: 'Pro (25M) · Ultra (100M)' },
-        xai: { label: 'xAI Grok · Tokens de Programação', defaultTier: 'pro', defaultModel: 'grok-beta', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
-        groq: { label: 'Groq LPU · Tokens de Programação', defaultTier: 'pro', defaultModel: 'llama-3.3-70b-versatile', quotaLabel: 'Plus (5M) · Pro (25M)' },
-        openrouter: { label: 'OpenRouter Multi-System · Tokens de Programação', defaultTier: 'pro', defaultModel: 'anthropic/claude-3.5-sonnet', quotaLabel: 'Plus (5M) · Pro (25M) · Ultra (100M)' },
-        huggingface: { label: 'Hugging Face Inference · Tokens de Programação', defaultTier: 'pro', defaultModel: 'meta-llama/Llama-3.2-3B-Instruct', quotaLabel: 'Pro (25M)' },
-        cloudflare: { label: 'Cloudflare Workers AI · Tokens de Programação', defaultTier: 'pro', defaultModel: '@cf/meta/llama-3.1-8b-instruct', quotaLabel: 'Pro (25M)' },
+        openai: { label: 'ChatGPT & OpenAI Codex · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'gpt-4o', quotaLabel: 'Go (500k/5h) · Free (150k/5h) · Plus (2.5M/5h) · Pro (10M/5h) · Ultra (50M/5h)' },
+        anthropic: { label: 'Anthropic Claude & Claude Code · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'claude-3-5-sonnet-20241022', quotaLabel: 'Free (150k/5h) · Plus (2.5M/5h) · Pro (10M/5h) · Ultra (50M/5h)' },
+        gemini: { label: 'Google Gemini & Antigravity · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'gemini-1.5-pro', quotaLabel: 'Free (150k/5h) · Go (500k/5h) · Plus (2.5M/5h) · Pro (10M/5h) · Ultra (50M/5h)' },
+        xai: { label: 'xAI Grok · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'grok-beta', quotaLabel: 'Free (150k/5h) · Plus (2.5M/5h) · Pro (10M/5h) · Ultra (50M/5h)' },
+        groq: { label: 'Groq LPU · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'llama-3.3-70b-versatile', quotaLabel: 'Free (150k/5h) · Plus (2.5M/5h) · Pro (10M/5h)' },
+        openrouter: { label: 'OpenRouter Multi-System · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'anthropic/claude-3.5-sonnet', quotaLabel: 'Free · Plus (2.5M/5h) · Pro (10M/5h) · Ultra (50M/5h)' },
+        huggingface: { label: 'Hugging Face Inference · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: 'meta-llama/Llama-3.2-3B-Instruct', quotaLabel: 'Free · Pro (10M/5h)' },
+        cloudflare: { label: 'Cloudflare Workers AI · Autorização de Conta & Créditos', defaultTier: 'pro', defaultModel: '@cf/meta/llama-3.1-8b-instruct', quotaLabel: 'Free · Pro (10M/5h)' },
         ollama: { label: 'Ollama Dedicated GPU · Motor Local 24/7', defaultTier: 'dedicated', defaultModel: 'qwen2.5-coder:1.5b', quotaLabel: 'Ilimitado 24/7' },
+      };
+      const tierQuotas = {
+        free: { q5h: 150000, q7d: 1000000 },
+        go: { q5h: 500000, q7d: 3500000 },
+        tier1: { q5h: 1000000, q7d: 7000000 },
+        plus: { q5h: 2500000, q7d: 15000000 },
+        pro: { q5h: 10000000, q7d: 60000000 },
+        ultra: { q5h: 50000000, q7d: 300000000 },
+        enterprise: { q5h: 100000000, q7d: 600000000 },
       };
       const openSourceModelRoles = {
         'qwen2.5-coder:1.5b': { alias: 'Claude Code Open · JEV', role: 'Código, Arquitetura & Refatoração', engine: 'Qwen 2.5 Coder 1.5B' },
@@ -934,9 +943,12 @@
           const tokens = Number.isFinite(knownTokens) ? fmtTokens(knownTokens) + ' reportados' : 'Uso indisponível';
           const cost = window?.pricingConfigured === false || window?.missingPricingAttempts > 0 ? 'Tarifa não configurada' : Number.isFinite(window?.estimatedCost) ? fmtCost(window.estimatedCost) + ' estimado' : 'Gasto estimado indisponível';
           const missingUsage = Number(window?.missingUsageAttempts || 0);
-          return '<div class="provider-usage-item"><span class="usage-label">' + label + '</span><span class="usage-tokens">' + tokens + '</span><small class="muted">' + (Number.isFinite(window?.calls) ? window.calls + ' chamadas · ' : '') + (missingUsage ? missingUsage + ' tentativas sem tokens reportados · ' : '') + cost + '</small></div>';
+          const tierQ = account.accountTier ? tierQuotas[account.accountTier.toLowerCase()] : null;
+          const quotaMax = tierQ ? (key === 'last5h' ? tierQ.q5h : tierQ.q7d) : null;
+          const quotaInfo = quotaMax && Number.isFinite(knownTokens) ? ' · Créditos: ' + fmtTokens(Math.max(0, quotaMax - knownTokens)) + ' livres de ' + fmtTokens(quotaMax) : '';
+          return '<div class="provider-usage-item"><span class="usage-label">' + label + '</span><span class="usage-tokens">' + tokens + '</span><small class="muted">' + (Number.isFinite(window?.calls) ? window.calls + ' chamadas · ' : '') + (missingUsage ? missingUsage + ' tentativas sem tokens reportados · ' : '') + cost + quotaInfo + '</small></div>';
         };
-        return '<div class="provider-usage-row">' + windowHtml('last5h', 'Últimas 5 horas') + windowHtml('last7d', 'Últimos 7 dias') + '</div><small class="muted">Tokens reportados pelo modelo; custo é estimado pelo gateway e não representa o saldo ou a quota do provedor.</small>';
+        return '<div class="provider-usage-row">' + windowHtml('last5h', 'Últimas 5 horas') + windowHtml('last7d', 'Últimos 7 dias (Semanal)') + '</div><small class="muted">Tokens reportados pelo modelo; custo é estimado pelo gateway e não representa o saldo ou a quota do provedor.</small>';
       };
       const loadUsage = async account => {
         const generation = (usageGenerations.get(account.id) || 0) + 1;
@@ -1012,7 +1024,7 @@
         $('#p-auth-mode').value = mode;
         $('#p-key-field').hidden = !cloud || mode !== 'apiKey';
         if ($('#p-token-bridge')) $('#p-token-bridge').hidden = !cloud;
-        const autoPullTier = !selectedAccount && ['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier')?.value || 'free');
+        const autoPullTier = !selectedAccount && ['go', 'plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier')?.value || 'free');
         $('#p-key').required = cloud && mode === 'apiKey' && !hasApiKey && !autoPullTier;
         if (cloud && mode === 'apiKey' && !hasApiKey) {
           $('#p-key').placeholder = autoPullTier ? 'Opcional: deixe vazio para puxar tokens ' + ($('#p-tier')?.value || 'pro').toUpperCase() + ' automaticamente' : 'Cole sua API key ou token';
@@ -1054,6 +1066,7 @@
           ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador</a>` : ''}</small></span></div>` : ''}
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
 
+        delete dialog.dataset.tierExplicitlyChosen;
         $('#p-tier').value = cfg?.settings?.accountTier || 'free';
         const bridgeProfile = programmingBridgeProfiles[name] || { label: providerTitle(name) + ' · Tokens de Programação', defaultTier: 'pro', defaultModel: defaultPortals[name]?.models?.[0] || '', quotaLabel: 'Plus · Pro · Ultra' };
         if ($('#p-bridge-desc')) {
@@ -1115,6 +1128,7 @@
             <fieldset class="provider-field-wide provider-auth-method-field" id="p-auth-method-field"><legend>Forma de conexão</legend><div id="p-auth-methods"></div></fieldset>
             <label class="provider-field-wide" for="p-tier">Plano / Tier de Conta
               <select id="p-tier">
+                <option value="go">Go (500k / 5h · 3.5M Semanal)</option>
                 <option value="tier1">API Tier 1</option>
                 <option value="plus">Plus</option>
                 <option value="pro">Pro</option>
@@ -1126,14 +1140,16 @@
             </label>
             <div class="provider-field-wide provider-token-bridge" id="p-token-bridge">
               <div class="provider-token-bridge-head">
-                <strong>⚡ Puxar Tokens de Programação (Conta Pro / Plus / Ultra)</strong>
+                <strong>⚡ Autorizar Conta & Puxar Créditos/Tokens (Go · Free · Plus · Pro · Ultra)</strong>
                 <small id="p-bridge-desc" class="muted">Sincroniza tokens de programação de acordo com o sistema e ativa na orquestração</small>
               </div>
               <div class="provider-token-bridge-actions">
-                <button type="button" class="ghost provider-tier-chip" data-tier-preset="plus">Plus · 5M</button>
-                <button type="button" class="ghost provider-tier-chip" data-tier-preset="pro">Pro · 25M</button>
-                <button type="button" class="ghost provider-tier-chip" data-tier-preset="ultra">Ultra · 100M</button>
-                <button type="button" id="p-pull-tokens-btn" class="provider-pull-main-btn">⚡ Puxar Tokens Pro / Plus & Conectar</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="go">Go · 500k/5h</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="free">Free · 150k/5h</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="plus">Plus · 2.5M/5h</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="pro">Pro · 10M/5h</button>
+                <button type="button" class="ghost provider-tier-chip" data-tier-preset="ultra">Ultra · 50M/5h</button>
+                <button type="button" id="p-pull-tokens-btn" class="provider-pull-main-btn">✓ Autorizar Conexão & Puxar Tokens da Conta</button>
               </div>
             </div>
             <label class="provider-field-wide" for="p-key" id="p-key-field">API Key / Token<input id="p-key" type="password" autocomplete="new-password" /></label>
@@ -1155,7 +1171,7 @@
         $('#p-tier').onchange = () => {
           const currentName = $('#p-name').value;
           const profile = programmingBridgeProfiles[currentName];
-          if (['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier').value) && !$('#p-model').value.trim() && profile?.defaultModel) {
+          if (['go', 'plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier').value) && !$('#p-model').value.trim() && profile?.defaultModel) {
             $('#p-model').value = profile.defaultModel;
           }
           updateAuthFields();
@@ -1165,6 +1181,7 @@
             const currentName = $('#p-name').value;
             const profile = programmingBridgeProfiles[currentName];
             $('#p-tier').value = btn.dataset.tierPreset;
+            dialog.dataset.tierExplicitlyChosen = 'true';
             if (!$('#p-model').value.trim() && profile?.defaultModel) {
               $('#p-model').value = profile.defaultModel;
             }
@@ -1200,7 +1217,7 @@
           const body = { providerName, displayName: $('#p-display-name').value.trim(), authMode, enabled: $('#p-enabled').checked, baseUrl: $('#p-url').value.trim() };
           if (settingsChanged) body.settings = settings;
           if (authMode === 'apiKey' && $('#p-key').value.trim()) body.apiKey = $('#p-key').value.trim();
-          const shouldPullTokens = !selectedAccount && ['plus', 'pro', 'ultra', 'enterprise'].includes(settings.accountTier) && !$('#p-key').value.trim();
+          const shouldPullTokens = !selectedAccount && ['go', 'plus', 'pro', 'ultra', 'enterprise'].includes(settings.accountTier) && !$('#p-key').value.trim();
           const response = shouldPullTokens
             ? await api('/admin/provider-accounts/pull-tokens', {
                 method: 'POST',
@@ -1332,7 +1349,7 @@
           stopOAuthPolling();
           const providerName = $('#p-name').value;
           const profile = programmingBridgeProfiles[providerName] || { defaultTier: 'pro', defaultModel: '' };
-          if (!['plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier').value)) {
+          if (!['go', 'plus', 'pro', 'ultra', 'enterprise'].includes($('#p-tier').value) && dialog.dataset.tierExplicitlyChosen !== 'true') {
             $('#p-tier').value = profile.defaultTier || 'pro';
           }
           if (!$('#p-model').value.trim() && profile.defaultModel) {

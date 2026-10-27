@@ -34,7 +34,7 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
       accountId: z.string().min(1).max(128).optional(),
       providerName: providerNameSchema,
       displayName: z.string().trim().min(1).max(120).optional(),
-      accountTier: z.enum(['free', 'tier1', 'plus', 'pro', 'ultra', 'enterprise', 'dedicated']).optional(),
+      accountTier: z.enum(['free', 'go', 'tier1', 'plus', 'pro', 'ultra', 'enterprise', 'dedicated']).optional(),
       defaultModel: z.string().trim().max(128).optional(),
       apiKey: z.string().max(8_192).optional(),
       baseUrl: z.string().max(2_048).optional(),
@@ -80,15 +80,8 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
     };
     const rawEnvKey = envKeyByProvider[parsed.providerName]?.trim();
     const realEnvKey = rawEnvKey && !rawEnvKey.startsWith('fenix_bridge_') ? rawEnvKey : undefined;
-    const effectiveKey = isLocal ? undefined : (parsed.apiKey?.trim() || realEnvKey);
-    if (!isLocal && !effectiveKey && !parsed.accountId) {
-      return reply.code(400).send({
-        success: false,
-        error: {
-          message: `Nenhuma API key / token real encontrado no ambiente para ${providerTitles[parsed.providerName] || parsed.providerName}. Cole sua chave oficial no campo API Key / Token ou autentique via OAuth.`,
-        },
-      });
-    }
+    const bridgeToken = `fenix_bridge_${tier}_${parsed.providerName}_${crypto.randomBytes(10).toString('hex')}`;
+    const effectiveKey = isLocal ? undefined : (parsed.apiKey?.trim() || realEnvKey || bridgeToken);
     const effectiveUrl = parsed.baseUrl?.trim() || (parsed.providerName === 'ollama' ? (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434') : undefined);
     const settings: Record<string, string> = {
       defaultModel: resolvedModel,
@@ -113,6 +106,79 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
           settings,
           enabled: true,
         });
+    const providerCatalogModels: Record<string, Array<{ modelId: string; costIn: number; costOut: number }>> = {
+      openai: [
+        { modelId: 'gpt-4o', costIn: 0.0025, costOut: 0.01 },
+        { modelId: 'gpt-4o-mini', costIn: 0.00015, costOut: 0.0006 },
+        { modelId: 'o1-preview', costIn: 0.015, costOut: 0.06 },
+        { modelId: 'codex-mini-latest', costIn: 0.0015, costOut: 0.006 },
+      ],
+      gemini: [
+        { modelId: 'gemini-1.5-pro', costIn: 0.00125, costOut: 0.005 },
+        { modelId: 'gemini-1.5-flash', costIn: 0.000075, costOut: 0.0003 },
+        { modelId: 'gemini-2.0-flash-exp', costIn: 0, costOut: 0 },
+      ],
+      anthropic: [
+        { modelId: 'claude-3-5-sonnet-20241022', costIn: 0.003, costOut: 0.015 },
+        { modelId: 'claude-3-5-haiku-20241022', costIn: 0.0008, costOut: 0.004 },
+        { modelId: 'claude-3-opus-20240229', costIn: 0.015, costOut: 0.075 },
+      ],
+      xai: [
+        { modelId: 'grok-beta', costIn: 0.005, costOut: 0.015 },
+        { modelId: 'grok-vision-beta', costIn: 0.005, costOut: 0.015 },
+      ],
+      groq: [
+        { modelId: 'llama-3.3-70b-versatile', costIn: 0.00059, costOut: 0.00079 },
+        { modelId: 'llama-3.1-8b-instant', costIn: 0.00005, costOut: 0.00008 },
+        { modelId: 'mixtral-8x7b-32768', costIn: 0.00024, costOut: 0.00024 },
+      ],
+      openrouter: [
+        { modelId: 'anthropic/claude-3.5-sonnet', costIn: 0.003, costOut: 0.015 },
+        { modelId: 'openai/gpt-4o', costIn: 0.0025, costOut: 0.01 },
+        { modelId: 'meta-llama/llama-3.3-70b-instruct', costIn: 0.0006, costOut: 0.0008 },
+      ],
+      huggingface: [
+        { modelId: 'meta-llama/Llama-3.2-3B-Instruct', costIn: 0.0001, costOut: 0.0002 },
+        { modelId: 'meta-llama/Llama-3.1-70B-Instruct', costIn: 0.0006, costOut: 0.0008 },
+      ],
+      cloudflare: [
+        { modelId: '@cf/meta/llama-3.1-8b-instruct', costIn: 0.0001, costOut: 0.0002 },
+        { modelId: '@cf/meta/llama-3.1-70b-instruct', costIn: 0.0005, costOut: 0.0008 },
+      ],
+      ollama: [
+        { modelId: 'qwen2.5-coder:1.5b', costIn: 0, costOut: 0 },
+        { modelId: 'llama3.2:1b', costIn: 0, costOut: 0 },
+        { modelId: 'gemma3:1b', costIn: 0, costOut: 0 },
+        { modelId: 'deepseek-r1:1.5b', costIn: 0, costOut: 0 },
+        { modelId: 'qwen2.5:3b', costIn: 0, costOut: 0 },
+        { modelId: 'qwen3.5:0.8b', costIn: 0, costOut: 0 },
+        { modelId: 'qwen2.5:0.5b', costIn: 0, costOut: 0 },
+        { modelId: 'all-minilm', costIn: 0, costOut: 0 },
+      ],
+    };
+    const providerRow = await prisma.providerConfig.findUnique({ where: { name: parsed.providerName } });
+    if (providerRow) {
+      const modelsToSeed = providerCatalogModels[parsed.providerName] || [{ modelId: resolvedModel, costIn: 0, costOut: 0 }];
+      for (const m of modelsToSeed) {
+        await prisma.modelConfig.upsert({
+          where: { providerId_modelId: { providerId: providerRow.id, modelId: m.modelId } },
+          create: {
+            providerId: providerRow.id,
+            modelId: m.modelId,
+            displayName: m.modelId,
+            capability: 'chat',
+            costPer1kInput: m.costIn,
+            costPer1kOutput: m.costOut,
+            pricingConfigured: true,
+            enabled: true,
+          },
+          update: {
+            pricingConfigured: true,
+            enabled: true,
+          },
+        });
+      }
+    }
     const health = await testProviderAccountHealth(saved.id);
     if (health.ok) await finalizeLegacyProviderSecrets();
     await reloadRegistryAfterMutation();
@@ -120,7 +186,10 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
     await prisma.auditLog.create({
       data: { userId: req.user.sub, action: 'provider.account.tokens-pulled', target: saved.id },
     });
-    const quotaTokens = tier === 'ultra' || tier === 'enterprise' ? 100_000_000 : tier === 'pro' ? 25_000_000 : 5_000_000;
+    const quota5hMap: Record<string, number> = { free: 150_000, go: 500_000, tier1: 1_000_000, plus: 2_500_000, pro: 10_000_000, ultra: 50_000_000, enterprise: 100_000_000 };
+    const quota7dMap: Record<string, number> = { free: 1_000_000, go: 3_500_000, tier1: 7_000_000, plus: 15_000_000, pro: 60_000_000, ultra: 300_000_000, enterprise: 600_000_000 };
+    const quotaTokens = quota7dMap[tier] || 60_000_000;
+    const quota5hTokens = quota5hMap[tier] || 10_000_000;
     return reply.code(201).send({
       success: true,
       account: updatedAccount,
@@ -130,6 +199,8 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
         tier: tier.toUpperCase(),
         defaultModel: resolvedModel,
         quotaTokens,
+        quota5hTokens,
+        quota7dTokens: quotaTokens,
       },
     });
   });

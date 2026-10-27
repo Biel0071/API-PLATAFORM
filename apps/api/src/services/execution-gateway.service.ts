@@ -517,7 +517,8 @@ export class ExecutionGateway {
 
     let effectiveModel = payload.model;
     let effectivePool = payload.pool;
-    if (['auto', 'jev', 'jev-open', 'laya', 'decision', 'coding', 'fast', ''].includes(requestedModel)) {
+    const isNonOllamaTarget = Boolean(providerAccountId || (payload.provider && payload.provider !== 'ollama'));
+    if (['auto', 'jev', 'jev-open', 'laya', 'decision', 'coding', 'fast', ''].includes(requestedModel) && !isNonOllamaTarget) {
       if (isCoding || requestedModel === 'coding') {
         effectiveModel = 'qwen2.5-coder:1.5b';
         effectivePool = 'CODING';

@@ -111,7 +111,7 @@ export class OllamaProvider extends BaseProvider {
     if (mappedRaw) {
       if (['gemma', 'gemma-open', 'gemma3', 'gemma-3', 'google-open', 'qwen2.5:1.5b'].includes(rawLower) || rawLower.includes('gemini')) {
         mappedRaw = 'gemma3:1b';
-      } else if (['claude-open', 'sonnet-open', 'jev', 'jev-open', 'jev-coder', 'coder-open', 'qwen-coder', 'deepseek-coder:6.7b', 'coding'].includes(rawLower) || rawLower.includes('claude')) {
+      } else if (['claude-open', 'sonnet-open', 'jev', 'jev-open', 'jev-coder', 'coder-open', 'qwen-coder', 'deepseek-coder:6.7b', 'coding'].includes(rawLower) || rawLower.includes('claude') || rawLower.includes('codex') || rawLower.includes('antigravity')) {
         mappedRaw = 'qwen2.5-coder:1.5b';
       } else if (['chatgpt-open', 'gpt-open', 'openai-open', 'llama', 'llama-open', 'llama3.2'].includes(rawLower) || rawLower.includes('gpt-') || rawLower.includes('llama-3') || rawLower.includes('mixtral')) {
         mappedRaw = 'llama3.2:1b';

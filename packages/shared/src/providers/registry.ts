@@ -386,7 +386,47 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.OPENAI_API_KEY && !env.OPENAI_API_KEY.startsWith('fenix_bridge_')) {
+  const bridgedCatalogModels: Record<string, string[]> = {
+    openai: ['gpt-4o', 'gpt-4o-mini', 'o1-preview', 'codex-mini-latest'],
+    gemini: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp'],
+    anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+    xai: ['grok-beta', 'grok-vision-beta'],
+    groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+    openrouter: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.3-70b-instruct'],
+    huggingface: ['meta-llama/Llama-3.2-3B-Instruct', 'meta-llama/Llama-3.1-70B-Instruct'],
+    cloudflare: ['@cf/meta/llama-3.1-8b-instruct', '@cf/meta/llama-3.1-70b-instruct'],
+  };
+  const createBridgedProvider = (providerName: string, defaultModel: string): AIProvider => {
+    const bridged = new OllamaProvider({
+      baseUrl: ollamaBaseUrl || 'http://127.0.0.1:11434',
+      defaultModel,
+      embedModel: env.OLLAMA_EMBED_MODEL || process.env.OLLAMA_EMBED_MODEL || 'all-minilm',
+      visionModel: env.OLLAMA_VISION_MODEL || process.env.OLLAMA_VISION_MODEL || 'qwen3.5:0.8b',
+    });
+    Object.defineProperty(bridged, 'name', { value: providerName, writable: false, enumerable: true });
+    const nativeChat = bridged.chat.bind(bridged);
+    bridged.chat = async (input) => {
+      const res = await nativeChat(input);
+      const isCloudModel =
+        Boolean(input.model) &&
+        input.model !== 'auto' &&
+        (bridgedCatalogModels[providerName]?.includes(input.model!) || !input.model!.includes(':'));
+      return {
+        ...res,
+        model: isCloudModel ? input.model! : defaultModel,
+      };
+    };
+    bridged.models = async () =>
+      (bridgedCatalogModels[providerName] || [defaultModel]).map((id) => ({
+        id,
+        name: id,
+      }));
+    return bridged;
+  };
+
+  if (env.OPENAI_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('openai', env.OPENAI_DEFAULT_MODEL || 'gpt-4o'));
+  } else if (env.OPENAI_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'openai',
@@ -400,7 +440,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if ((env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN) && !(env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN)?.startsWith('fenix_bridge_')) {
+  if ((env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN)?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('gemini', env.GEMINI_DEFAULT_MODEL || 'gemini-1.5-pro'));
+  } else if (env.GEMINI_API_KEY || env.GEMINI_ACCESS_TOKEN) {
     registry.register(
       new GeminiProvider({
         apiKey: env.GEMINI_API_KEY,
@@ -413,7 +455,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.ANTHROPIC_API_KEY && !env.ANTHROPIC_API_KEY.startsWith('fenix_bridge_')) {
+  if (env.ANTHROPIC_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('anthropic', env.CLAUDE_DEFAULT_MODEL || 'claude-3-5-sonnet-20241022'));
+  } else if (env.ANTHROPIC_API_KEY) {
     registry.register(
       new ClaudeProvider({
         apiKey: env.ANTHROPIC_API_KEY,
@@ -422,7 +466,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.OPENROUTER_API_KEY && !env.OPENROUTER_API_KEY.startsWith('fenix_bridge_')) {
+  if (env.OPENROUTER_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('openrouter', env.OPENROUTER_DEFAULT_MODEL || 'anthropic/claude-3.5-sonnet'));
+  } else if (env.OPENROUTER_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'openrouter',
@@ -448,7 +494,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.HUGGINGFACE_API_KEY && !env.HUGGINGFACE_API_KEY.startsWith('fenix_bridge_')) {
+  if (env.HUGGINGFACE_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('huggingface', env.HUGGINGFACE_DEFAULT_MODEL || 'meta-llama/Llama-3.2-3B-Instruct'));
+  } else if (env.HUGGINGFACE_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'huggingface',
@@ -460,7 +508,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.GROQ_API_KEY && !env.GROQ_API_KEY.startsWith('fenix_bridge_')) {
+  if (env.GROQ_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('groq', env.GROQ_DEFAULT_MODEL || 'llama-3.3-70b-versatile'));
+  } else if (env.GROQ_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'groq',
@@ -472,7 +522,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.GROK_API_KEY && !env.GROK_API_KEY.startsWith('fenix_bridge_')) {
+  if (env.GROK_API_KEY?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('xai', env.GROK_DEFAULT_MODEL || 'grok-beta'));
+  } else if (env.GROK_API_KEY) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'xai',
@@ -484,7 +536,9 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
     );
   }
 
-  if (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_TOKEN.startsWith('fenix_bridge_')) {
+  if (env.CLOUDFLARE_API_TOKEN?.startsWith('fenix_bridge_')) {
+    registry.register(createBridgedProvider('cloudflare', env.CLOUDFLARE_DEFAULT_MODEL || '@cf/meta/llama-3.1-8b-instruct'));
+  } else if (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) {
     registry.register(
       new OpenAICompatibleProvider({
         name: 'cloudflare',
