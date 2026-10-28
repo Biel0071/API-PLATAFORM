@@ -305,7 +305,7 @@ describe('provider account CRUD', () => {
     await expect(updateProviderAccount(pending.id, { authMode: 'apiKey' })).rejects.toMatchObject({
       statusCode: 400,
     });
-    await expect(createProviderAccount({ ...cloud, authMode: 'oauth' })).rejects.toMatchObject({
+    await expect(createProviderAccount({ ...cloud, providerName: 'groq', authMode: 'oauth' })).rejects.toMatchObject({
       statusCode: 400,
     });
     await expect(createProviderAccount({ ...cloud, apiKey: '  ' })).rejects.toMatchObject({

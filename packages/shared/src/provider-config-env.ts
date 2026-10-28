@@ -1,4 +1,4 @@
-import { decryptCredential, StoredProviderOAuth } from './provider-oauth';
+import { decryptCredential, StoredProviderOAuth, OAuthProviderName } from './provider-oauth';
 
 export interface ProviderConfigEnvironmentRow {
   name: string;
@@ -30,7 +30,7 @@ export async function buildProviderAccountEnvironments(
   encryptionSecret: string,
   resolveOAuthToken: (
     accountId: string,
-    name: 'gemini' | 'huggingface',
+    name: OAuthProviderName,
     oauth: StoredProviderOAuth,
   ) => Promise<string | undefined>,
 ): Promise<
@@ -93,7 +93,7 @@ export async function buildProviderEnvironment(
   baseEnv: Record<string, string | undefined>,
   encryptionSecret: string,
   resolveOAuthToken: (
-    name: 'gemini' | 'huggingface',
+    name: OAuthProviderName,
     oauth: StoredProviderOAuth,
   ) => Promise<string | undefined>,
 ): Promise<Record<string, string | undefined>> {
@@ -143,9 +143,12 @@ export async function buildProviderEnvironment(
     }
 
     let secret: string | undefined;
-    if (oauthMode && (name === 'gemini' || name === 'huggingface')) {
+    if (
+      oauthMode &&
+      (name === 'gemini' || name === 'huggingface' || name === 'openai' || name === 'anthropic')
+    ) {
       secret = settings.oauth
-        ? await resolveOAuthToken(name, settings.oauth as StoredProviderOAuth)
+        ? await resolveOAuthToken(name as OAuthProviderName, settings.oauth as StoredProviderOAuth)
         : undefined;
       if (name === 'gemini') {
         delete result.GEMINI_API_KEY;
@@ -153,9 +156,21 @@ export async function buildProviderEnvironment(
         if (secret) result.GEMINI_ACCESS_TOKEN = secret;
         if (baseEnv.GEMINI_OAUTH_PROJECT_ID)
           result.GEMINI_OAUTH_PROJECT_ID = baseEnv.GEMINI_OAUTH_PROJECT_ID;
-      } else {
+      } else if (name === 'huggingface') {
         delete result.HUGGINGFACE_API_KEY;
         if (secret) result.HUGGINGFACE_API_KEY = secret;
+      } else if (name === 'openai') {
+        delete result.OPENAI_API_KEY;
+        if (secret) {
+          result.OPENAI_API_KEY = secret;
+          result.OPENAI_OAUTH_TOKEN = secret;
+        }
+      } else if (name === 'anthropic') {
+        delete result.ANTHROPIC_API_KEY;
+        if (secret) {
+          result.ANTHROPIC_API_KEY = secret;
+          result.ANTHROPIC_OAUTH_TOKEN = secret;
+        }
       }
     } else {
       secret = decryptCredential(settings.apiKeyEncrypted, encryptionSecret);

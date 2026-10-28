@@ -19,6 +19,12 @@ import {
   pollHuggingFaceDeviceFlow,
   startGeminiOAuth,
   startHuggingFaceDeviceFlow,
+  startOpenAICodexDeviceFlow,
+  pollOpenAICodexDeviceFlow,
+  startClaudeOAuth,
+  finishClaudeOAuth,
+  getAvailableCLISessions,
+  importLocalCLICredentials,
 } from '../../services/provider-oauth.service';
 import { prisma } from '../../lib/prisma';
 import { isProviderProbeExcluded } from '../../services/provider-probe-policy';
@@ -70,6 +76,110 @@ export async function providersRoutes(secured: FastifyInstance): Promise<void> {
       return { success: true, ...result };
     },
   );
+
+  // OpenAI Codex Device Flow
+  secured.post(
+    '/provider-oauth/openai-codex/start',
+    {
+      schema: { tags: ['admin'] },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async () => ({ success: true, ...(await startOpenAICodexDeviceFlow()) }),
+  );
+
+  secured.post(
+    '/provider-accounts/:accountId/oauth/openai-codex/start',
+    { schema: { tags: ['admin'] }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { accountId } = req.params as { accountId: string };
+      return { success: true, ...(await startOpenAICodexDeviceFlow(accountId)) };
+    },
+  );
+
+  secured.post(
+    '/provider-oauth/openai-codex/poll',
+    {
+      schema: { tags: ['admin'] },
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const result = await pollOpenAICodexDeviceFlow(req.body);
+      if (result.status === 'connected') await reloadRegistryAfterMutation();
+      return { success: true, ...result };
+    },
+  );
+
+  secured.post(
+    '/provider-accounts/:accountId/oauth/openai-codex/poll',
+    { schema: { tags: ['admin'] }, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { accountId } = req.params as { accountId: string };
+      const result = await pollOpenAICodexDeviceFlow(req.body, accountId);
+      if (result.status === 'connected') await reloadRegistryAfterMutation();
+      return { success: true, ...result };
+    },
+  );
+
+  // Anthropic Claude PKCE Flow
+  secured.post(
+    '/provider-oauth/claude/start',
+    {
+      schema: { tags: ['admin'] },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async () => ({ success: true, ...(await startClaudeOAuth()) }),
+  );
+
+  secured.post(
+    '/provider-accounts/:accountId/oauth/claude/start',
+    { schema: { tags: ['admin'] }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { accountId } = req.params as { accountId: string };
+      return { success: true, ...(await startClaudeOAuth(accountId)) };
+    },
+  );
+
+  secured.post(
+    '/provider-oauth/claude/finish',
+    {
+      schema: { tags: ['admin'] },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const result = await finishClaudeOAuth(req.body);
+      await reloadRegistryAfterMutation();
+      return { success: true, status: result };
+    },
+  );
+
+  secured.post(
+    '/provider-accounts/:accountId/oauth/claude/finish',
+    { schema: { tags: ['admin'] }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { accountId } = req.params as { accountId: string };
+      const result = await finishClaudeOAuth(req.body, accountId);
+      await reloadRegistryAfterMutation();
+      return { success: true, status: result };
+    },
+  );
+
+  // CLI Sessions Discovery & 1-Click Import
+  secured.get('/provider-oauth/cli-sessions', { schema: { tags: ['admin'] } }, async () => ({
+    success: true,
+    sessions: getAvailableCLISessions(),
+  }));
+
+  secured.post('/provider-oauth/cli-sessions/import', { schema: { tags: ['admin'] } }, async (req) => {
+    const { provider, accountId } = z
+      .object({
+        provider: z.enum(['openai', 'anthropic', 'gemini']),
+        accountId: z.string().optional(),
+      })
+      .parse(req.body);
+    const result = await importLocalCLICredentials(provider, accountId);
+    await reloadRegistryAfterMutation();
+    return { ...result };
+  });
 
   secured.post(
     '/provider-oauth/gemini/start',

@@ -20,7 +20,7 @@ export const providerNameSchema = z.enum([
   'invokeai',
 ]);
 const localProviders = new Set(['ollama', 'lmstudio', 'comfyui', 'forge', 'invokeai']);
-const oauthProviders = new Set(['gemini', 'huggingface']);
+const oauthProviders = new Set(['gemini', 'huggingface', 'openai', 'anthropic']);
 const authModeSchema = z.enum(['apiKey', 'oauth', 'local']);
 export const providerEndpointSchema = z
   .string()

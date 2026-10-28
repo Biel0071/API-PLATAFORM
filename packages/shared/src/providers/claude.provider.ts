@@ -15,6 +15,7 @@ import {
 export interface ClaudeConfig {
   apiKey: string;
   defaultModel?: string;
+  isOAuth?: boolean;
 }
 
 /** Anthropic (Messages API) via REST */
@@ -93,12 +94,28 @@ export class ClaudeProvider extends BaseProvider {
     if (input.tools !== undefined) body.tools = input.tools;
     if (input.toolChoice !== undefined) body.tool_choice = input.toolChoice;
 
+    const isOAuth =
+      this.config.isOAuth ||
+      (!this.config.apiKey.startsWith('sk-ant-api') &&
+        (this.config.apiKey.startsWith('Bearer ') ||
+          this.config.apiKey.length > 100 ||
+          this.config.apiKey.includes('.')));
+    const headers: Record<string, string> = {
+      'anthropic-version': '2023-06-01',
+    };
+    if (isOAuth) {
+      const token = this.config.apiKey.startsWith('Bearer ')
+        ? this.config.apiKey.slice(7)
+        : this.config.apiKey;
+      headers['authorization'] = `Bearer ${token}`;
+      headers['anthropic-beta'] = 'oauth-2025-04-20';
+    } else {
+      headers['x-api-key'] = this.config.apiKey;
+    }
+
     const data = await this.http<any>('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'x-api-key': this.config.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
+      headers,
       body,
     });
 

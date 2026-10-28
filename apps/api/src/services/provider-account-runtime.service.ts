@@ -7,6 +7,7 @@ import {
   ProviderRegistry,
   resolveOAuthCredential,
   StoredProviderOAuth,
+  OAuthProviderName,
   withRedisLock,
 } from '@api-platform/shared';
 import type { ProviderAccount } from '@prisma/client';
@@ -34,7 +35,7 @@ async function loadAccounts(): Promise<RuntimeAccount[]> {
 
 async function oauthToken(
   accountId: string,
-  name: 'gemini' | 'huggingface',
+  name: OAuthProviderName,
   oauth: StoredProviderOAuth,
 ): Promise<string | undefined> {
   return resolveOAuthCredential(
@@ -44,7 +45,11 @@ async function oauthToken(
       clientId:
         name === 'gemini'
           ? process.env.GEMINI_OAUTH_CLIENT_ID
-          : process.env.HUGGINGFACE_OAUTH_CLIENT_ID,
+          : name === 'openai'
+            ? (process.env.OPENAI_CODEX_CLIENT_ID ?? 'app_EMoamEEZ73f0CkXaXp7hrann')
+            : name === 'anthropic'
+              ? (process.env.CLAUDE_OAUTH_CLIENT_ID ?? '9d1c250a-e61b-44d9-88ed-5944d1962f5e')
+              : process.env.HUGGINGFACE_OAUTH_CLIENT_ID,
       clientSecret:
         name === 'gemini'
           ? process.env.GEMINI_OAUTH_CLIENT_SECRET

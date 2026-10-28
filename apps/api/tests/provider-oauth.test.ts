@@ -48,6 +48,13 @@ vi.mock('../src/lib/prisma', () => {
         state.accounts.set(where.id, { ...account, ...data });
         return { count: 1 };
       }),
+      update: vi.fn(async ({ where, data }: any) => {
+        const account = state.accounts.get(where.id);
+        if (!account) return null;
+        const updated = { ...account, ...data };
+        state.accounts.set(where.id, updated);
+        return updated;
+      }),
       upsert: vi.fn(async ({ where, create, update }: any) => {
         const account = [...state.accounts.values()].find(
           (row) => row.legacyProviderConfigId === where.legacyProviderConfigId,
@@ -94,12 +101,21 @@ import { providersRoutes } from '../src/routes/admin/providers';
 import { registerGoogleOAuthCallback } from '../src/routes/provider-oauth-callback';
 import { reloadRegistryAfterMutation } from '../src/services/ai.service';
 import { serializeRequestForLog } from '../src/lib/logger';
+import { env } from '../src/config/env';
 import {
   buildProviderEnvironment,
   encryptCredential,
   resolveOAuthCredential,
 } from '@api-platform/shared';
-import { GeminiProvider } from '@api-platform/shared';
+import { GeminiProvider, ClaudeProvider, decryptCredential } from '@api-platform/shared';
+import {
+  startOpenAICodexDeviceFlow,
+  pollOpenAICodexDeviceFlow,
+  startClaudeOAuth,
+  finishClaudeOAuth,
+  getAvailableCLISessions,
+  importLocalCLICredentials,
+} from '../src/services/provider-oauth.service';
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -143,7 +159,10 @@ afterEach(() => {
 });
 
 describe('provider OAuth connection flows', () => {
-  function addAccount(id: string, provider: 'gemini' | 'huggingface') {
+  function addAccount(
+    id: string,
+    provider: 'gemini' | 'huggingface' | 'openai' | 'anthropic',
+  ) {
     const config = { id: `provider-${provider}`, name: provider, enabled: true, settings: {} };
     state.rows.set(provider, config);
     state.accounts.set(id, {
@@ -713,5 +732,126 @@ describe('provider OAuth connection flows', () => {
     } finally {
       await app.close();
     }
+  });
+
+  it('handles OpenAI Codex device flow start and poll to connection', async () => {
+    addAccount('acc-openai', 'openai');
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      response({
+        device_auth_id: 'dev-auth-123',
+        user_code: 'ABCD-1234',
+        interval: 5,
+        expires_in: 600,
+      }),
+    );
+
+    const started = await startOpenAICodexDeviceFlow('acc-openai');
+    expect(started.userCode).toBe('ABCD-1234');
+    expect(started.verificationUri).toBe('https://auth.openai.com/codex/device');
+
+    // Poll pending
+    vi.mocked(fetch).mockResolvedValueOnce(
+      response({ error: 'authorization_pending' }, 400),
+    );
+    const pending = await pollOpenAICodexDeviceFlow({ flowId: started.flowId }, 'acc-openai');
+    expect(pending.status).toBe('pending');
+
+    // Poll success
+    vi.mocked(fetch).mockResolvedValueOnce(
+      response({
+        access_token: 'openai-access-tok-123',
+        refresh_token: 'openai-refresh-tok-456',
+        expires_in: 3600,
+      }),
+    );
+    const success = await pollOpenAICodexDeviceFlow({ flowId: started.flowId }, 'acc-openai');
+    expect(success.status).toBe('connected');
+
+    const updatedAccount = state.accounts.get('acc-openai');
+    expect(updatedAccount.authMode).toBe('oauth');
+    expect(updatedAccount.oauthProvider).toBe('openai');
+    expect(updatedAccount.oauthAccessTokenEncrypted).toBeDefined();
+    expect(decryptCredential(updatedAccount.oauthAccessTokenEncrypted, env.JWT_SECRET)).toBe(
+      'openai-access-tok-123',
+    );
+  });
+
+  it('handles Claude PKCE flow start and finish authorization', async () => {
+    addAccount('acc-anthropic', 'anthropic');
+
+    const started = await startClaudeOAuth('acc-anthropic');
+    expect(started.state).toBeDefined();
+    expect(started.authorizationUrl).toContain('https://claude.ai/oauth/authorize');
+    expect(started.authorizationUrl).toContain('client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e');
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      response({
+        access_token: 'claude-oauth-token-789',
+        refresh_token: 'claude-oauth-refresh-012',
+        expires_in: 7200,
+        scope: 'org:create_api_key user:profile user:inference',
+      }),
+    );
+
+    const finish = await finishClaudeOAuth({ code: 'auth-code-claude', state: started.state }, 'acc-anthropic');
+    expect(finish).toBe('connected');
+
+    const updatedAccount = state.accounts.get('acc-anthropic');
+    expect(updatedAccount.authMode).toBe('oauth');
+    expect(updatedAccount.oauthProvider).toBe('anthropic');
+    expect(decryptCredential(updatedAccount.oauthAccessTokenEncrypted, env.JWT_SECRET)).toBe(
+      'claude-oauth-token-789',
+    );
+  });
+
+  it('detects available CLI sessions and returns accurate status', () => {
+    const sessions = getAvailableCLISessions();
+    expect(sessions).toHaveProperty('openai');
+    expect(sessions).toHaveProperty('anthropic');
+    expect(sessions).toHaveProperty('gemini');
+    expect(typeof sessions.openai.available).toBe('boolean');
+    expect(typeof sessions.anthropic.available).toBe('boolean');
+    expect(typeof sessions.gemini.available).toBe('boolean');
+  });
+
+  it('imports local CLI credentials for OpenAI Codex if auth.json exists', async () => {
+    addAccount('acc-openai-import', 'openai');
+
+    // Check if CLI session is available in local environment
+    const sessions = getAvailableCLISessions();
+    if (sessions.openai.available) {
+      const result = await importLocalCLICredentials('openai', 'acc-openai-import');
+      expect(result.status).toBe('connected');
+      expect(result.provider).toBe('openai');
+      const updated = state.accounts.get('acc-openai-import');
+      expect(updated.authMode).toBe('oauth');
+      expect(updated.oauthProvider).toBe('openai');
+    }
+  });
+
+  it('ClaudeProvider sends Bearer and beta header when configured with an OAuth token', async () => {
+    const fetchMock = vi.mocked(fetch).mockResolvedValue(
+      response({
+        content: [{ type: 'text', text: 'Hello from Claude' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    );
+
+    const provider = new ClaudeProvider({
+      apiKey: 'Bearer claude-oauth-access-token-example',
+      isOAuth: true,
+    });
+
+    const result = await provider.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+    expect(result.result.message.content).toBe('Hello from Claude');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('https://api.anthropic.com/v1/messages');
+    expect(init?.headers).toMatchObject({
+      authorization: 'Bearer claude-oauth-access-token-example',
+      'anthropic-beta': 'oauth-2025-04-20',
+      'anthropic-version': '2023-06-01',
+    });
   });
 });

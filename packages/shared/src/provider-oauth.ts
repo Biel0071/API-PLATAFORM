@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 
-export type OAuthProviderName = 'gemini' | 'huggingface';
+export type OAuthProviderName = 'gemini' | 'huggingface' | 'openai' | 'anthropic';
 export interface StoredProviderOAuth {
-  provider: 'google' | 'huggingface';
+  provider: 'google' | 'huggingface' | 'openai' | 'anthropic';
   accessTokenEncrypted: string;
   refreshTokenEncrypted?: string;
   expiresAt?: number;
@@ -95,7 +95,14 @@ export async function resolveOAuthCredential(
 ): Promise<string | undefined> {
   const now = options.now ?? Date.now;
   const fetcher = options.fetcher ?? fetch;
-  const providerKind = options.provider === 'gemini' ? 'google' : 'huggingface';
+  const providerKind: StoredProviderOAuth['provider'] =
+    options.provider === 'gemini'
+      ? 'google'
+      : options.provider === 'openai'
+        ? 'openai'
+        : options.provider === 'anthropic'
+          ? 'anthropic'
+          : 'huggingface';
   if (!initial || initial.provider !== providerKind || initial.reauthRequired) return undefined;
 
   const expiresSoon = (oauth: StoredProviderOAuth) =>
@@ -118,7 +125,11 @@ export async function resolveOAuthCredential(
     await options.save({ ...initial, reauthRequired: true });
     return undefined;
   }
-  if (!initial.refreshTokenEncrypted || !options.clientId || !options.clientSecret) {
+  if (options.provider === 'gemini' && (!initial.refreshTokenEncrypted || !options.clientId || !options.clientSecret)) {
+    await options.save({ ...initial, reauthRequired: true });
+    return undefined;
+  }
+  if ((options.provider === 'openai' || options.provider === 'anthropic') && !initial.refreshTokenEncrypted) {
     await options.save({ ...initial, reauthRequired: true });
     return undefined;
   }
@@ -142,13 +153,31 @@ export async function resolveOAuthCredential(
       await options.save({ ...current, reauthRequired: true });
       return undefined;
     }
-    const body = new URLSearchParams({
-      client_id: options.clientId!,
-      client_secret: options.clientSecret!,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    });
-    const response = await fetcher('https://oauth2.googleapis.com/token', {
+    let refreshUrl = 'https://oauth2.googleapis.com/token';
+    let body: URLSearchParams;
+    if (options.provider === 'openai') {
+      refreshUrl = 'https://auth.openai.com/oauth/token';
+      body = new URLSearchParams({
+        client_id: options.clientId ?? 'app_EMoamEEZ73f0CkXaXp7hrann',
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      });
+    } else if (options.provider === 'anthropic') {
+      refreshUrl = 'https://console.anthropic.com/v1/oauth/token';
+      body = new URLSearchParams({
+        client_id: options.clientId ?? '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      });
+    } else {
+      body = new URLSearchParams({
+        client_id: options.clientId!,
+        client_secret: options.clientSecret!,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      });
+    }
+    const response = await fetcher(refreshUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body,
@@ -172,7 +201,7 @@ export async function resolveOAuthCredential(
       return undefined;
     }
     const refreshed: StoredProviderOAuth = {
-      provider: 'google',
+      provider: providerKind,
       accessTokenEncrypted: encryptCredential(token.access_token, options.secret),
       refreshTokenEncrypted: token.refresh_token
         ? encryptCredential(token.refresh_token, options.secret)

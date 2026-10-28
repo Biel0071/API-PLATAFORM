@@ -883,3 +883,74 @@ test('connects official platform accounts via direct branded account buttons', a
   await expect(page.locator('#p-hf-code')).toHaveText('DIRECT-CODE');
   await page.locator('#p-cancel').click();
 });
+
+
+test('activates OpenAI Codex account via Device Code OAuth flow and Claude via PKCE flow', async ({
+  page,
+}) => {
+  // 1. OpenAI Codex Device Flow
+  await page.route('**/admin/provider-accounts/*/oauth/openai-codex/start', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        success: true,
+        flowId: 'codex-flow-123',
+        userCode: 'CODEX-9988',
+        verificationUri: 'https://auth.openai.com/codex/device',
+        expiresAt: new Date(Date.now() + 600000).toISOString(),
+        intervalSeconds: 5,
+      },
+    }),
+  );
+  await page.route('**/admin/provider-accounts/*/oauth/openai-codex/poll', (route) => {
+    // update account
+    const acc = accounts.find((a) => a.providerName === 'openai');
+    if (acc) {
+      acc.authMode = 'oauth';
+      acc.hasCredential = true;
+      acc.oauthNeedsReauth = false;
+      acc.accountTier = 'pro';
+    }
+    return route.fulfill({ status: 200, json: { success: true, status: 'connected' } });
+  });
+
+  await page.locator('[data-connect-provider="openai"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  // Select OAuth mode
+  const oauthRadio = page.locator('input[name="provider-auth-mode"][value="oauth"]');
+  await expect(oauthRadio).toBeVisible();
+  await oauthRadio.check();
+
+  await expect(page.locator('#p-openai-oauth-actions')).toBeVisible();
+  await page.locator('#p-openai-start').click();
+
+  await expect(page.locator('#p-openai-code')).toHaveText('CODEX-9988');
+  await expect(page.locator('#p-openai-link')).toHaveAttribute('href', 'https://auth.openai.com/codex/device');
+
+  await page.locator('#p-cancel').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+
+  // 2. Anthropic Claude PKCE Flow
+  await page.route('**/admin/provider-accounts/*/oauth/claude/start', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        success: true,
+        state: 'claude-test-state',
+        authorizationUrl: 'https://claude.ai/oauth/authorize?client_id=test',
+        redirectUri: 'https://console.anthropic.com/oauth/code/callback',
+      },
+    }),
+  );
+
+  await page.locator('[data-connect-provider="anthropic"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.locator('input[name="provider-auth-mode"][value="oauth"]').check();
+  await expect(page.locator('#p-claude-oauth-actions')).toBeVisible();
+  await page.locator('#p-claude-start').click();
+  await expect(page.locator('#p-claude-flow')).toBeVisible();
+
+  await page.locator('#p-cancel').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+});

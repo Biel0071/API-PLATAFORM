@@ -3,6 +3,7 @@ import {
   encryptCredential,
   resolveOAuthCredential,
   StoredProviderOAuth,
+  OAuthProviderName,
   withRedisLock,
 } from '@api-platform/shared';
 import { prisma } from '../lib/prisma';
@@ -99,7 +100,7 @@ export async function readProviderSettings(name: string): Promise<StoredSettings
 }
 
 export async function saveProviderOAuth(
-  name: 'gemini' | 'huggingface',
+  name: OAuthProviderName,
   oauth: StoredProviderOAuth,
 ): Promise<void> {
   const current = await prisma.providerConfig.findUnique({ where: { name } });
@@ -112,7 +113,7 @@ export async function saveProviderOAuth(
 }
 
 export async function updateProviderOAuth(
-  name: 'gemini' | 'huggingface',
+  name: OAuthProviderName,
   oauth: StoredProviderOAuth,
 ): Promise<void> {
   const current = await prisma.providerConfig.findUnique({ where: { name } });
@@ -121,7 +122,7 @@ export async function updateProviderOAuth(
   await prisma.providerConfig.update({ where: { name }, data: { settings: settings as object } });
 }
 
-export async function disconnectProviderOAuth(name: 'gemini' | 'huggingface'): Promise<void> {
+export async function disconnectProviderOAuth(name: OAuthProviderName): Promise<void> {
   const current = await prisma.providerConfig.findUnique({ where: { name } });
   if (!current) return;
   const settings = { ...((current.settings ?? {}) as StoredSettings) };
@@ -139,8 +140,18 @@ export async function buildProviderEnv(baseEnv: Record<string, string | undefine
   return buildProviderEnvironment(rows, baseEnv, env.JWT_SECRET, (name, oauth) => resolveOAuthCredential({
     provider: name,
     secret: env.JWT_SECRET,
-    clientId: name === 'gemini' ? process.env.GEMINI_OAUTH_CLIENT_ID : process.env.HUGGINGFACE_OAUTH_CLIENT_ID,
-    clientSecret: name === 'gemini' ? process.env.GEMINI_OAUTH_CLIENT_SECRET : process.env.HUGGINGFACE_OAUTH_CLIENT_SECRET,
+    clientId:
+      name === 'gemini'
+        ? process.env.GEMINI_OAUTH_CLIENT_ID
+        : name === 'openai'
+          ? (process.env.OPENAI_CODEX_CLIENT_ID ?? 'app_EMoamEEZ73f0CkXaXp7hrann')
+          : name === 'anthropic'
+            ? (process.env.CLAUDE_OAUTH_CLIENT_ID ?? '9d1c250a-e61b-44d9-88ed-5944d1962f5e')
+            : process.env.HUGGINGFACE_OAUTH_CLIENT_ID,
+    clientSecret:
+      name === 'gemini'
+        ? process.env.GEMINI_OAUTH_CLIENT_SECRET
+        : process.env.HUGGINGFACE_OAUTH_CLIENT_SECRET,
     withLock: (key, operation) => withRedisLock(redis, key, operation),
     load: async () => (await readProviderSettings(name)).oauth,
     save: (updated) => updateProviderOAuth(name, updated),

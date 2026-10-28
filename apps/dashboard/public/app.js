@@ -1120,6 +1120,8 @@
         $('#p-account').required = name === 'cloudflare' && mode === 'apiKey' && !selectedAccount;
         $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
         $('#p-google-oauth-actions').hidden = name !== 'gemini' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
+        $('#p-openai-oauth-actions').hidden = name !== 'openai' || mode !== 'oauth';
+        $('#p-claude-oauth-actions').hidden = name !== 'anthropic' || mode !== 'oauth';
         $('#p-save').disabled = false;
         $('#p-save').textContent = mode === 'oauth' ? 'Salvar ajustes' : 'Salvar conexão';
       };
@@ -1132,9 +1134,9 @@
         const live = providers.find(p => p.name === name);
         const cloud = details[name].kind === 'cloud';
         const connection = connectionOptions[name] || {};
-        const oauthEnabled = Boolean(connection.oauth?.enabled);
+        const oauthEnabled = Boolean(connection.oauth?.enabled || ['huggingface', 'gemini', 'openai', 'anthropic'].includes(name));
         const initialAuthMode = options.authMode || (cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : 'apiKey')) : 'local');
-        const authMode = (initialAuthMode === 'oauth' && !oauthEnabled && !['gemini', 'huggingface'].includes(name)) ? 'apiKey' : initialAuthMode;
+        const authMode = (initialAuthMode === 'oauth' && !oauthEnabled && !['gemini', 'huggingface', 'openai', 'anthropic'].includes(name)) ? 'apiKey' : initialAuthMode;
         const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-name').value = name;
         $('#p-name').disabled = Boolean(selectedAccount);
@@ -1156,9 +1158,14 @@
         $('#p-url').placeholder = cloud ? 'Opcional: endpoint personalizado' : 'http://servidor:porta';
         $('#p-auth-method-field').hidden = !cloud;
         const portalUrl = connection.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
+        const oauthLabel =
+          name === 'gemini' ? 'Entrar com Conta Google (Google AI / Pro)'
+          : name === 'openai' ? 'Entrar com Conta ChatGPT / Codex (Go · Plus · Pro)'
+          : name === 'anthropic' ? 'Entrar com Conta Claude (Pro · Team · Max)'
+          : 'Entrar com Hugging Face (Device Flow)';
         $('#p-auth-methods').innerHTML = cloud ? `
           <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API Key ou Token</strong><small>Use uma credencial da API gerada no portal oficial.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir portal no navegador para obter chave</a>` : ''}</small></span></label>
-          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador</a>` : ''}</small></span></div>` : ''}
+          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${esc(oauthLabel)}</strong><small>Conecte sua conta de programação e use seus créditos de assinatura.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador</a>` : ''}</small></span></div>` : ''}
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
 
         if ($('#p-account-platform-helper')) {
@@ -1291,7 +1298,51 @@
             <label for="p-embed">Modelo de embeddings do provedor<input id="p-embed" placeholder="Opcional: ID do modelo" /></label>
           </div><div class="provider-form-options"><label class="inline-check" id="p-default-field"><input id="p-default-chat" type="checkbox" /> Usar como padrão de chat e tarefas do Fênix</label><label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Provedor ativo</label></div>
           <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden><p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p><button id="p-hf-start" type="button">Entrar com Hugging Face</button><p id="p-hf-start-status" role="status" aria-live="polite"></p><div id="p-hf-flow" hidden><p>Código de autorização: <strong id="p-hf-code"></strong></p><a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer">Abrir Hugging Face para autorizar</a><button id="p-hf-copy" class="ghost" type="button">Copiar código</button><p id="p-oauth-status" role="status" aria-live="polite"></p></div></section>
-          <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden><p>Continue para o Google autorizar o acesso à API Gemini.</p><button id="p-google-start" type="button">Entrar com Google</button></section>
+          <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden>
+            <p>Continue para o Google autorizar o acesso à sua conta Google AI / Gemini.</p>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+              <button id="p-google-start" type="button">Entrar com Google</button>
+              <button id="p-google-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar credenciais ativas do Gemini CLI (~/.gemini/oauth_creds.json)">⚡ Importar do Gemini CLI</button>
+            </div>
+          </section>
+          <section id="p-openai-oauth-actions" class="provider-oauth-actions" hidden>
+            <p>Conecte sua conta <strong>ChatGPT (Go · Plus · Pro)</strong> via OpenAI Codex Device Flow oficial.</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+              <button id="p-openai-start" type="button" class="apple-btn-direct-connect apple-btn-openai" style="min-height:36px;padding:0.4rem 0.9rem;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073z"/></svg>
+                Entrar com Conta ChatGPT / Codex
+              </button>
+              <button id="p-openai-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar sessão ativa do Codex CLI (~/.codex/auth.json)">⚡ Importar do Codex CLI</button>
+            </div>
+            <p id="p-openai-start-status" role="status" aria-live="polite"></p>
+            <div id="p-openai-flow" hidden style="margin-top:0.6rem;padding:0.75rem;border-radius:10px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);">
+              <p style="margin:0 0 0.4rem 0;">Código de ativação: <strong id="p-openai-code" style="font-family:monospace;font-size:1.15rem;letter-spacing:1px;color:#10b981;"></strong></p>
+              <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                <a id="p-openai-link" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer" class="provider-portal-link" style="min-height:32px;padding:0.35rem 0.75rem;">Abrir auth.openai.com/codex/device</a>
+                <button id="p-openai-copy" class="ghost sm" type="button">Copiar código</button>
+              </div>
+              <p id="p-openai-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.4rem 0 0 0;font-size:0.78rem;">Aguardando autorização no navegador...</p>
+            </div>
+          </section>
+          <section id="p-claude-oauth-actions" class="provider-oauth-actions" hidden>
+            <p>Conecte sua conta <strong>Claude Pro / Team / Max</strong> via Claude Code PKCE oficial.</p>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+              <button id="p-claude-start" type="button" class="apple-btn-direct-connect apple-btn-anthropic" style="min-height:36px;padding:0.4rem 0.9rem;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13.827 1.558a2.443 2.443 0 0 0-3.654 0L.595 12.392a2.443 2.443 0 0 0 0 3.454l9.578 9.578a2.443 2.443 0 0 0 3.454 0l9.578-9.578a2.443 2.443 0 0 0 0-3.454L13.827 1.558z"/></svg>
+                Entrar com Conta Claude
+              </button>
+              <button id="p-claude-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar sessão ativa do Claude Code CLI (~/.claude/.credentials.json)">⚡ Importar do Claude Code</button>
+            </div>
+            <p id="p-claude-start-status" role="status" aria-live="polite"></p>
+            <div id="p-claude-flow" hidden style="margin-top:0.6rem;padding:0.75rem;border-radius:10px;background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.25);">
+              <p style="margin:0 0 0.4rem 0;font-size:0.8rem;">Após autorizar na página da Anthropic, cole o código ou URL de callback aqui:</p>
+              <div style="display:flex;gap:0.4rem;align-items:center;">
+                <input id="p-claude-code-input" placeholder="Cole o código de autorização do Claude aqui" style="flex:1;" />
+                <button id="p-claude-finish-btn" type="button" class="ghost sm">Concluir Conexão</button>
+              </div>
+              <p id="p-claude-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.4rem 0 0 0;font-size:0.78rem;"></p>
+            </div>
+          </section>
           <div class="apple-auto-ident-banner"><span style="color:#f59e0b;font-size:0.95rem;">✨</span><div><strong>Auto-identificação inteligente:</strong> Ao conectar uma conta real, o sistema detecta os modelos disponíveis, valida o plano (Free, Plus, Pro, Ultra) e configura os tokens a se gastar (5h e semanal) automaticamente.</div></div><p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
         </div>`;
         fillProvider(name, options);
@@ -1457,6 +1508,163 @@
             if (!isViewStale(providerView) && dialog.open) setBusy(false);
           }
         };
+        // OpenAI Codex Device Flow
+        let openaiPollTimer = null;
+        let claudeAuthState = null;
+
+        const stopAllOAuthPolling = () => {
+          stopOAuthPolling();
+          if (openaiPollTimer) { clearTimeout(openaiPollTimer); openaiPollTimer = null; }
+        };
+
+        if ($('#p-openai-start')) {
+          $('#p-openai-start').onclick = async () => {
+            if (saving || !$('#p-form').reportValidity()) return;
+            stopAllOAuthPolling();
+            const status = $('#p-openai-start-status');
+            status.textContent = 'Solicitando código de ativação ao OpenAI Codex...'; status.className = 'muted';
+            setBusy(true);
+            try {
+              $('#p-auth-mode').value = 'oauth';
+              const account = await saveAccount();
+              if (!account) return;
+              await saveProviderSettings();
+              const scope = accountPath(account.id) + '/oauth/openai-codex';
+              const generation = ++flowGeneration;
+              const flow = await api(scope + '/start', { method: 'POST' });
+              if (isViewStale(providerView) || generation !== flowGeneration || !dialog.open) return;
+              $('#p-openai-code').textContent = flow.userCode;
+              $('#p-openai-link').href = flow.verificationUri;
+              $('#p-openai-start-status').textContent = '';
+              $('#p-openai-flow').hidden = false;
+              const flowStatus = $('#p-openai-oauth-status');
+              flowStatus.textContent = 'Aguardando autorização no navegador. Esta janela verificará a ativação automaticamente.';
+              const poll = intervalSeconds => {
+                openaiPollTimer = setTimeout(async () => {
+                  if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
+                  try {
+                    const result = await api(scope + '/poll', { method: 'POST', body: { flowId: flow.flowId } });
+                    if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
+                    if (result.status === 'pending') { poll(result.intervalSeconds || flow.intervalSeconds); return; }
+                    if (result.status !== 'connected') {
+                      status.textContent = result.status === 'denied' ? 'A autorização foi negada na OpenAI.' : 'O código expirou. Inicie uma nova conexão.';
+                      status.className = 'error'; $('#p-openai-start').disabled = false; return;
+                    }
+                    await refreshAccounts();
+                    if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
+                    renderCards();
+                    stopAllOAuthPolling(); dialog.close();
+                    toast('Conta ChatGPT / OpenAI Codex conectada com sucesso! Tokens e quotas ativados.', 'success');
+                  } catch (err) {
+                    if (generation === flowGeneration && !isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; $('#p-openai-start').disabled = false; }
+                  }
+                }, Math.max(1, Math.min(Number(intervalSeconds) || 5, 60)) * 1000);
+              };
+              poll(flow.intervalSeconds);
+            } catch (err) {
+              if (!isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; }
+            } finally {
+              if (!isViewStale(providerView) && dialog.open) setBusy(false);
+            }
+          };
+        }
+
+        if ($('#p-openai-copy')) {
+          $('#p-openai-copy').onclick = async () => {
+            const status = $('#p-openai-oauth-status');
+            try { await navigator.clipboard.writeText($('#p-openai-code').textContent); status.textContent = 'Código copiado para a área de transferência!'; }
+            catch { status.textContent = 'Selecione e copie o código manualmente.'; }
+          };
+        }
+
+        // Claude PKCE Flow
+        if ($('#p-claude-start')) {
+          $('#p-claude-start').onclick = async () => {
+            if (saving || !$('#p-form').reportValidity()) return;
+            const status = $('#p-claude-start-status');
+            status.textContent = 'Iniciando autorização PKCE com a Anthropic...'; status.className = 'muted';
+            setBusy(true);
+            try {
+              $('#p-auth-mode').value = 'oauth';
+              const account = await saveAccount();
+              if (!account) return;
+              await saveProviderSettings();
+              const started = await api(accountPath(account.id) + '/oauth/claude/start', { method: 'POST' });
+              claudeAuthState = started.state;
+              $('#p-claude-flow').hidden = false;
+              status.textContent = 'Página de autorização aberta. Conclua o login e cole o código abaixo.';
+              status.className = 'muted';
+              window.open(started.authorizationUrl, '_blank');
+            } catch (err) {
+              if (!isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; }
+            } finally {
+              if (!isViewStale(providerView) && dialog.open) setBusy(false);
+            }
+          };
+        }
+
+        if ($('#p-claude-finish-btn')) {
+          $('#p-claude-finish-btn').onclick = async () => {
+            let rawCode = ($('#p-claude-code-input')?.value || '').trim();
+            if (!rawCode) { toast('Cole o código de autorização fornecido pelo Claude.', 'error'); return; }
+            if (rawCode.includes('code=')) {
+              try {
+                const url = new URL(rawCode.startsWith('http') ? rawCode : 'https://dummy.test/' + rawCode);
+                rawCode = url.searchParams.get('code') || rawCode;
+              } catch {}
+            }
+            const status = $('#p-claude-oauth-status');
+            status.textContent = 'Validando autorização do Claude...'; status.className = 'muted';
+            setBusy(true);
+            try {
+              const account = selectedAccount || await saveAccount();
+              if (!account) return;
+              const result = await api(accountPath(account.id) + '/oauth/claude/finish', {
+                method: 'POST',
+                body: { code: rawCode, state: claudeAuthState },
+              });
+              if (result.status === 'connected') {
+                await refreshAccounts();
+                renderCards();
+                dialog.close();
+                toast('Conta Claude conectada com sucesso! Tokens e modelos ativados.', 'success');
+              }
+            } catch (err) {
+              if (dialog.open) { status.textContent = err.message; status.className = 'error'; }
+            } finally {
+              if (dialog.open) setBusy(false);
+            }
+          };
+        }
+
+        // 1-Click Local CLI Session Import Handlers
+        const handleCLIImport = async (provider) => {
+          setBusy(true);
+          const result = $('#p-result');
+          result.textContent = `Importando sessão ativa do ${providerTitle(provider)} CLI...`;
+          result.className = 'muted';
+          try {
+            const res = await api('/admin/provider-oauth/cli-sessions/import', {
+              method: 'POST',
+              body: { provider, accountId: selectedAccount?.id },
+            });
+            if (res.success) {
+              await refreshAccounts();
+              renderCards();
+              dialog.close();
+              toast(`Sessão oficial do ${providerTitle(provider)} importada e conectada com sucesso (${(res.tier || 'PRO').toUpperCase()})!`, 'success');
+            }
+          } catch (err) {
+            if (dialog.open) { result.textContent = err.message; result.className = 'error'; }
+          } finally {
+            if (dialog.open) setBusy(false);
+          }
+        };
+
+        if ($('#p-openai-import-btn')) $('#p-openai-import-btn').onclick = () => handleCLIImport('openai');
+        if ($('#p-claude-import-btn')) $('#p-claude-import-btn').onclick = () => handleCLIImport('anthropic');
+        if ($('#p-google-import-btn')) $('#p-google-import-btn').onclick = () => handleCLIImport('gemini');
+
         $('#p-hf-copy').onclick = async () => {
           const status = $('#p-oauth-status');
           try { await navigator.clipboard.writeText($('#p-hf-code').textContent); status.textContent = 'Código copiado.'; }
@@ -1557,12 +1765,26 @@
             if (!isViewStale(providerView) && dialog.open) setBusy(false);
           }
         };
+        
+        // Check local CLI sessions in background
+        api('/admin/provider-oauth/cli-sessions').then(res => {
+          if (!dialog.open || !res.sessions) return;
+          const s = res.sessions;
+          if (s.openai?.available && $('#p-openai-import-btn')) $('#p-openai-import-btn').style.display = 'inline-block';
+          if (s.anthropic?.available && $('#p-claude-import-btn')) $('#p-claude-import-btn').style.display = 'inline-block';
+          if (s.gemini?.available && $('#p-google-import-btn')) $('#p-google-import-btn').style.display = 'inline-block';
+        }).catch(() => {});
+
         dialog.showModal();
         if (options?.autoStartOAuth) {
           if (name === 'huggingface' && connectionOptions[name]?.oauth?.enabled) {
             setTimeout(() => { $('#p-hf-start')?.click(); }, 60);
           } else if (name === 'gemini' && connectionOptions[name]?.oauth?.enabled) {
             setTimeout(() => { $('#p-google-start')?.click(); }, 60);
+          } else if (name === 'openai') {
+            setTimeout(() => { $('#p-openai-start')?.click(); }, 60);
+          } else if (name === 'anthropic') {
+            setTimeout(() => { $('#p-claude-start')?.click(); }, 60);
           }
         } else {
           (selectedAccount ? $('#p-display-name') : (options?.directAccount ? $('#p-key') : $('#p-name'))).focus();
