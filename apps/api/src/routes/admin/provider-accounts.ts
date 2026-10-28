@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { reloadRegistryAfterMutation } from '../../services/ai.service';
-import { testProviderAccountHealth } from '../../services/provider-account-runtime.service';
+import { autoIdentifyProviderAccount, testProviderAccountHealth } from '../../services/provider-account-runtime.service';
 import { finalizeLegacyProviderSecrets } from '../../services/provider-account-migration.service';
 import { getProviderAccountUsage } from '../../services/provider-account-usage.service';
 import {
@@ -208,10 +208,26 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
   secured.post('/provider-accounts', { schema: { tags: ['admin'] } }, async (req, reply) => {
     const account = await createProviderAccount(providerAccountInputSchema.parse(req.body));
     await reloadRegistryAfterMutation();
+    let identification = null;
+    const shouldAutoIdentify = (req.body as any)?.autoIdentify === true || (account.authMode === 'apiKey' && account.hasCredential) || account.authMode === 'local';
+    if (shouldAutoIdentify) {
+      try {
+        identification = await autoIdentifyProviderAccount(account.id);
+        if (identification.health.ok) await finalizeLegacyProviderSecrets();
+        await reloadRegistryAfterMutation();
+      } catch {
+        // Fallback silently if upstream auto-identification network probe fails
+      }
+    }
     await prisma.auditLog.create({
       data: { userId: req.user.sub, action: 'provider.account.created', target: account.id },
     });
-    return reply.code(201).send({ success: true, account });
+    const finalAccount = await getProviderAccount(account.id);
+    return reply.code(201).send({
+      success: true,
+      account: finalAccount,
+      ...(identification ? { autoIdentified: identification.identified } : {}),
+    });
   });
   secured.patch('/provider-accounts/:accountId', { schema: { tags: ['admin'] } }, async (req) => {
     const { accountId } = z.object({ accountId: z.string().min(1).max(128) }).parse(req.params);
@@ -246,6 +262,21 @@ export async function providerAccountsRoutes(secured: FastifyInstance): Promise<
         data: { userId: req.user.sub, action: 'provider.account.health-tested', target: accountId },
       });
       return { success: true, health };
+    },
+  );
+  secured.post(
+    '/provider-accounts/:accountId/auto-identify',
+    { schema: { tags: ['admin'] } },
+    async (req) => {
+      const { accountId } = z.object({ accountId: z.string().min(1).max(128) }).parse(req.params);
+      const result = await autoIdentifyProviderAccount(accountId);
+      if (result.health.ok) await finalizeLegacyProviderSecrets();
+      await reloadRegistryAfterMutation();
+      const updatedAccount = await getProviderAccount(accountId);
+      await prisma.auditLog.create({
+        data: { userId: req.user.sub, action: 'provider.account.auto-identified', target: accountId },
+      });
+      return { success: true, ...result, account: updatedAccount };
     },
   );
 }

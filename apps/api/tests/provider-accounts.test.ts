@@ -9,11 +9,13 @@ const state = vi.hoisted(() => ({
 }));
 const runtimeMocks = vi.hoisted(() => ({
   testProviderAccountHealth: vi.fn(),
+  autoIdentifyProviderAccount: vi.fn(),
 }));
 const migrationMocks = vi.hoisted(() => ({ finalizeLegacyProviderSecrets: vi.fn(async () => 0) }));
 
 vi.mock('../src/services/provider-account-runtime.service', () => ({
   testProviderAccountHealth: runtimeMocks.testProviderAccountHealth,
+  autoIdentifyProviderAccount: runtimeMocks.autoIdentifyProviderAccount,
 }));
 vi.mock('../src/services/provider-account-migration.service', () => ({
   finalizeLegacyProviderSecrets: migrationMocks.finalizeLegacyProviderSecrets,
@@ -645,7 +647,37 @@ describe('legacy provider configuration compatibility', () => {
     expect(account.credentialEncrypted).toBe(encryptedKey);
   });
 
-  it('clears a prior OAuth reauthorization marker after a successful legacy reauthorization', async () => {
+  it('auto-identifies account tier, models and spending quotas upon request', async () => {
+    runtimeMocks.autoIdentifyProviderAccount.mockResolvedValueOnce({
+      health: { ok: true, latencyMs: 42, message: 'Conta auto-identificada' },
+      identified: {
+        tier: 'pro',
+        tierLabel: 'PRO (10M/5h · 60M Semanal)',
+        defaultModel: 'gpt-4o',
+        availableModels: ['gpt-4o', 'gpt-4o-mini'],
+        modelCount: 2,
+        quota5hTokens: 10_000_000,
+        quota7dTokens: 60_000_000,
+        latencyMs: 42,
+        reason: 'Conta OpenAI Pro com acesso a GPT-4o e inferência de código Codex',
+      },
+    });
+    const app = await accountApp();
+    const account = await createProviderAccount(cloud);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/provider-accounts/${account.id}/auto-identify`,
+      headers: { authorization: 'Bearer token' },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.success).toBe(true);
+    expect(body.identified.tier).toBe('pro');
+    expect(body.identified.defaultModel).toBe('gpt-4o');
+    expect(body.identified.quota5hTokens).toBe(10_000_000);
+  });
+
+    it('clears a prior OAuth reauthorization marker after a successful legacy reauthorization', async () => {
     await saveProviderConfig({
       name: 'gemini',
       enabled: true,

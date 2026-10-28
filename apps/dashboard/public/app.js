@@ -1243,7 +1243,7 @@
           </div><div class="provider-form-options"><label class="inline-check" id="p-default-field"><input id="p-default-chat" type="checkbox" /> Usar como padrão de chat e tarefas do Fênix</label><label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Provedor ativo</label></div>
           <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden><p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p><button id="p-hf-start" type="button">Entrar com Hugging Face</button><p id="p-hf-start-status" role="status" aria-live="polite"></p><div id="p-hf-flow" hidden><p>Código de autorização: <strong id="p-hf-code"></strong></p><a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer">Abrir Hugging Face para autorizar</a><button id="p-hf-copy" class="ghost" type="button">Copiar código</button><p id="p-oauth-status" role="status" aria-live="polite"></p></div></section>
           <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden><p>Continue para o Google autorizar o acesso à API Gemini.</p><button id="p-google-start" type="button">Entrar com Google</button></section>
-          <p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
+          <div class="apple-auto-ident-banner"><span style="color:#f59e0b;font-size:0.95rem;">✨</span><div><strong>Auto-identificação inteligente:</strong> Ao conectar uma conta real, o sistema detecta os modelos disponíveis, valida o plano (Free, Plus, Pro, Ultra) e configura os tokens a se gastar (5h e semanal) automaticamente.</div></div><p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
         </div>`;
         fillProvider(name);
         $('#p-dialog-title').textContent = selectedAccount ? 'Editar conta' : 'Conectar conta';
@@ -1317,7 +1317,13 @@
           selectedAccount = response.account;
           const index = accounts.findIndex(item => item.id === selectedAccount.id);
           if (index < 0) accounts.push(selectedAccount); else accounts[index] = selectedAccount;
-          if (response.tokenBridge && response.health?.ok) {
+          if (response.autoIdentified) {
+            testResults.set(selectedAccount.id, {
+              kind: 'ok',
+              message: `✨ Conta auto-identificada: ${response.autoIdentified.tier.toUpperCase()} (${fmtTokens(response.autoIdentified.quota5hTokens)}/5h) · ${response.autoIdentified.defaultModel}`,
+            });
+            toast(`✨ Conta auto-identificada: ${response.autoIdentified.tier.toUpperCase()} (${fmtTokens(response.autoIdentified.quota5hTokens)}/5h) · Modelo: ${response.autoIdentified.defaultModel}`, 'success');
+          } else if (response.tokenBridge && response.health?.ok) {
             testResults.set(selectedAccount.id, { kind: 'ok', message: 'Tokens de programação ' + (response.tokenBridge.tier || 'pro').toUpperCase() + ' conectados e ativos · ' + (response.tokenBridge.defaultModel || '') });
           } else {
             testResults.delete(selectedAccount.id);
@@ -1547,7 +1553,7 @@
                 </div>
               </div>
               <div class="inspector-header-actions">
-                ${currentAcc ? `<button type="button" class="ghost sm" id="pi-test-btn">Testar Conexão</button>` : ''}
+                ${currentAcc ? `<button type="button" class="ghost sm apple-btn-auto-ident" id="pi-auto-ident-btn" title="Auto-identifica tier e quota de tokens a gastar sondando os modelos reais da API">✨ Auto-identificar Tokens</button><button type="button" class="ghost sm" id="pi-test-btn">Testar Conexão</button>` : ''}
                 ${details[name]?.kind === 'cloud' ? `<button type="button" class="ghost sm provider-pull-card-btn" id="pi-pull-btn">⚡ Puxar Tokens Pro/Plus</button>` : ''}
                 <button type="button" class="ghost sm" id="pi-config-btn">${currentAcc ? 'Editar Conta' : 'Conectar Conta'}</button>
                 ${portalUrl ? `<a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-portal-link" style="min-height:34px;padding:0.35rem 0.75rem;font-size:0.76rem;">${svgExternal} Portal Oficial</a>` : ''}
@@ -1673,6 +1679,29 @@
         };
         const copyCurlBtn = $('#pi-copy-curl');
         if (copyCurlBtn) copyCurlBtn.onclick = () => copyToClipboard($('#pi-curl-code').textContent, copyCurlBtn);
+        const autoIdentBtn = $('#pi-auto-ident-btn');
+        if (autoIdentBtn && currentAcc) {
+          autoIdentBtn.onclick = async () => {
+            autoIdentBtn.disabled = true;
+            autoIdentBtn.textContent = '✨ Identificando...';
+            try {
+              const res = await api(accountPath(currentAcc.id) + '/auto-identify', { method: 'POST' });
+              if (res.identified) {
+                toast(`✓ Conta auto-identificada: ${res.identified.tier.toUpperCase()} (${fmtTokens(res.identified.quota5hTokens)}/5h) · ${res.identified.reason}`, 'success');
+                const idx = accounts.findIndex(a => a.id === currentAcc.id);
+                if (idx >= 0) accounts[idx] = res.account;
+                openProviderInspector(name, inspectorReturnFocus, res.account);
+                renderCards();
+                loadUsage(res.account);
+              }
+            } catch (err) {
+              toast('Falha na auto-identificação: ' + err.message, 'error');
+            } finally {
+              autoIdentBtn.disabled = false;
+              autoIdentBtn.textContent = '✨ Auto-identificar Tokens';
+            }
+          };
+        }
         const testBtn = $('#pi-test-btn');
         if (testBtn && currentAcc) {
           testBtn.onclick = async () => {

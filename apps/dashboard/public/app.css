@@ -2877,3 +2877,30 @@ pre, code { overflow-wrap: anywhere; }
     padding: 0.9rem 1rem;
   }
 }
+
+.apple-auto-ident-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  margin: 0.75rem 0 0.5rem;
+  border-radius: 9px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  color: #fde68a;
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+.apple-auto-ident-banner strong {
+  color: #fff;
+  font-weight: 600;
+}
+.apple-btn-auto-ident {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  color: #fbbf24 !important;
+  background: rgba(245, 158, 11, 0.1) !important;
+}
+.apple-btn-auto-ident:hover {
+  background: rgba(245, 158, 11, 0.22) !important;
+  color: #ffffff !important;
+}
