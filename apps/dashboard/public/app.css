@@ -2458,15 +2458,36 @@ pre, code { overflow-wrap: anywhere; }
 }
 
 .provider-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 
 .provider-logo img {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
+}
+
+.provider-logo-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
 }
 
 .provider-card h3 {
@@ -3000,4 +3021,54 @@ pre, code { overflow-wrap: anywhere; }
 .apple-btn-auto-ident:hover {
   background: rgba(245, 158, 11, 0.22) !important;
   color: #ffffff !important;
+}
+
+/* Apple HIG Direct Account Connect Buttons */
+.apple-btn-direct-connect {
+  border-radius: 9px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  border: 1px solid transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+.apple-btn-direct-connect:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.apple-btn-openai {
+  background: #10a37f !important;
+  color: #ffffff !important;
+  border-color: rgba(16, 163, 127, 0.4) !important;
+}
+.apple-btn-openai:hover {
+  background: #0e906f !important;
+}
+.apple-btn-anthropic {
+  background: #c15f3c !important;
+  color: #ffffff !important;
+  border-color: rgba(193, 95, 60, 0.4) !important;
+}
+.apple-btn-anthropic:hover {
+  background: #ab5132 !important;
+}
+.apple-btn-google {
+  background: #1a73e8 !important;
+  color: #ffffff !important;
+  border-color: rgba(26, 115, 232, 0.4) !important;
+}
+.apple-btn-google:hover {
+  background: #1557b0 !important;
+}
+.apple-btn-hf {
+  background: #ffbd59 !important;
+  color: #111827 !important;
+  border-color: rgba(255, 189, 89, 0.4) !important;
+}
+.apple-btn-hf:hover {
+  background: #e6a745 !important;
 }

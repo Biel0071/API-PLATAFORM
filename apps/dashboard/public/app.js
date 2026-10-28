@@ -901,7 +901,25 @@
         'all-minilm': { alias: 'Embeddings Semânticos RAG', role: 'Vetorização & Memória de Execução', engine: 'All-MiniLM-L6-v2' },
         'all-minilm:latest': { alias: 'Embeddings Semânticos RAG', role: 'Vetorização & Memória de Execução', engine: 'All-MiniLM-L6-v2' },
       };
-      const logo = (name) => `<span class="provider-logo" aria-hidden="true"><img src="assets/providers/${name}.svg" width="28" height="28" alt="" /></span>`;
+      const providerBranding = {
+        openai: { bg: '#10a37f', color: '#fff', monogram: 'OA' },
+        anthropic: { bg: '#c15f3c', color: '#fff', monogram: 'CL' },
+        gemini: { bg: '#1a73e8', color: '#fff', monogram: 'GE' },
+        ollama: { bg: '#0f172a', color: '#fff', monogram: 'OL' },
+        huggingface: { bg: '#ffbd59', color: '#000', monogram: 'HF' },
+        groq: { bg: '#f55036', color: '#fff', monogram: 'GQ' },
+        openrouter: { bg: '#3b82f6', color: '#fff', monogram: 'OR' },
+        cloudflare: { bg: '#f38020', color: '#fff', monogram: 'CF' },
+        xai: { bg: '#000000', color: '#fff', monogram: 'xAI' },
+        lmstudio: { bg: '#6366f1', color: '#fff', monogram: 'LM' },
+        comfyui: { bg: '#0d9488', color: '#fff', monogram: 'CU' },
+        forge: { bg: '#06b6d4', color: '#fff', monogram: 'FG' },
+        invokeai: { bg: '#22c55e', color: '#fff', monogram: 'IA' },
+      };
+      const logo = (name) => {
+        const brand = providerBranding[name] || { bg: '#1e293b', color: '#fff', monogram: (name || 'AI').slice(0, 2).toUpperCase() };
+        return `<span class="provider-logo provider-logo-${esc(name)}" aria-hidden="true"><img src="assets/providers/${esc(name)}.svg" width="20" height="20" alt="${esc(name)}" onerror="this.style.display='none';this.parentElement.style.background='${brand.bg}';this.parentElement.style.color='${brand.color}';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-flex';" /><span class="provider-logo-fallback" style="display:none;font-weight:720;font-size:0.75rem;letter-spacing:-0.5px;">${brand.monogram}</span></span>`;
+      };
       const svgExternal = `<svg class="icon-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 
       const fmtTokens = (n) => {
@@ -1118,8 +1136,8 @@
         }
         $('#p-account-field').hidden = name !== 'cloudflare';
         $('#p-account').required = name === 'cloudflare' && mode === 'apiKey' && !selectedAccount;
-        $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
-        $('#p-google-oauth-actions').hidden = name !== 'gemini' || mode !== 'oauth' || !connectionOptions[name]?.oauth?.enabled;
+        $('#p-hf-oauth-actions').hidden = name !== 'huggingface' || mode !== 'oauth';
+        $('#p-google-oauth-actions').hidden = name !== 'gemini' || mode !== 'oauth';
         $('#p-openai-oauth-actions').hidden = name !== 'openai' || mode !== 'oauth';
         $('#p-claude-oauth-actions').hidden = name !== 'anthropic' || mode !== 'oauth';
         $('#p-save').disabled = false;
@@ -1135,7 +1153,7 @@
         const cloud = details[name].kind === 'cloud';
         const connection = connectionOptions[name] || {};
         const oauthEnabled = Boolean(connection.oauth?.enabled || ['huggingface', 'gemini', 'openai', 'anthropic'].includes(name));
-        const initialAuthMode = options.authMode || (cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : 'apiKey')) : 'local');
+        const initialAuthMode = options.authMode || (cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : (['gemini', 'openai', 'anthropic', 'huggingface'].includes(name) ? 'oauth' : 'apiKey'))) : 'local');
         const authMode = (initialAuthMode === 'oauth' && !oauthEnabled && !['gemini', 'huggingface', 'openai', 'anthropic'].includes(name)) ? 'apiKey' : initialAuthMode;
         const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-name').value = name;
@@ -1164,8 +1182,8 @@
           : name === 'anthropic' ? 'Entrar com Conta Claude (Pro · Team · Max)'
           : 'Entrar com Hugging Face (Device Flow)';
         $('#p-auth-methods').innerHTML = cloud ? `
-          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API Key ou Token</strong><small>Use uma credencial da API gerada no portal oficial.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir portal no navegador para obter chave</a>` : ''}</small></span></label>
-          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${esc(oauthLabel)}</strong><small>Conecte sua conta de programação e use seus créditos de assinatura.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador</a>` : ''}</small></span></div>` : ''}
+          ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${esc(oauthLabel)}</strong><small>Conecte sua conta pessoal de programação e gaste tokens de assinatura na API.</small></span></label>` : ''}
+          <label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="apiKey" ${authMode === 'apiKey' ? 'checked' : ''} /><span><strong>API Key ou Token Oficial</strong><small>Use uma credencial da API gerada no portal oficial.${portalUrl ? ` <a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir portal no navegador para obter chave</a>` : ''}</small></span></label>
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
 
         if ($('#p-account-platform-helper')) {
@@ -1297,31 +1315,56 @@
             </label>
             <label for="p-embed">Modelo de embeddings do provedor<input id="p-embed" placeholder="Opcional: ID do modelo" /></label>
           </div><div class="provider-form-options"><label class="inline-check" id="p-default-field"><input id="p-default-chat" type="checkbox" /> Usar como padrão de chat e tarefas do Fênix</label><label class="inline-check"><input id="p-enabled" type="checkbox" checked /> Provedor ativo</label></div>
-          <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden><p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p><button id="p-hf-start" type="button">Entrar com Hugging Face</button><p id="p-hf-start-status" role="status" aria-live="polite"></p><div id="p-hf-flow" hidden><p>Código de autorização: <strong id="p-hf-code"></strong></p><a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer">Abrir Hugging Face para autorizar</a><button id="p-hf-copy" class="ghost" type="button">Copiar código</button><p id="p-oauth-status" role="status" aria-live="polite"></p></div></section>
-          <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden>
-            <p>Continue para o Google autorizar o acesso à sua conta Google AI / Gemini.</p>
-            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-              <button id="p-google-start" type="button">Entrar com Google</button>
-              <button id="p-google-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar credenciais ativas do Gemini CLI (~/.gemini/oauth_creds.json)">⚡ Importar do Gemini CLI</button>
+          <section id="p-hf-oauth-actions" class="provider-oauth-actions" hidden>
+            <p>Autorize o acesso à inferência no Hugging Face com o código temporário abaixo.</p>
+            <button id="p-hf-start" type="button" class="apple-btn-direct-connect apple-btn-hf" style="min-height:36px;padding:0.4rem 0.9rem;">Iniciar Conexão Oficial (huggingface.co)</button>
+            <p id="p-hf-start-status" role="status" aria-live="polite"></p>
+            <div id="p-hf-flow" hidden style="margin-top:0.6rem;padding:0.85rem;border-radius:10px;background:rgba(255,189,89,0.08);border:1px solid rgba(255,189,89,0.3);text-align:center;">
+              <p style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--text-secondary);">Passo 1: Código de autorização:</p>
+              <div style="display:inline-flex;align-items:center;gap:0.6rem;padding:0.4rem 1rem;background:rgba(0,0,0,0.3);border:1px solid rgba(255,189,89,0.4);border-radius:8px;margin-bottom:0.6rem;">
+                <strong id="p-hf-code" style="font-family:monospace;font-size:1.35rem;letter-spacing:2px;color:#ffbd59;"></strong>
+                <button id="p-hf-copy" class="ghost sm" type="button">Copiar código</button>
+              </div>
+              <p style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--text-secondary);">Passo 2: Clique abaixo para autorizar no Hugging Face:</p>
+              <a id="p-hf-link" href="https://huggingface.co/oauth/authorize/device" target="_blank" rel="noopener noreferrer" class="apple-btn-direct-connect apple-btn-hf" style="min-height:36px;padding:0.5rem 1rem;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;width:100%;box-sizing:border-box;">
+                🚀 Abrir huggingface.co/oauth/authorize/device no Navegador ↗
+              </a>
+              <p id="p-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.5rem 0 0 0;font-size:0.8rem;">Aguardando autorização...</p>
             </div>
+          </section>
+          <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden>
+            <p>Conecte sua conta <strong>Google AI Pro / Workspace (Gemini 2.5 Pro &amp; Flash)</strong>.</p>
+            <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;margin-bottom:0.6rem;">
+              <a id="p-google-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="apple-btn-direct-connect apple-btn-google" style="min-height:36px;padding:0.4rem 0.9rem;text-decoration:none;display:inline-flex;align-items:center;gap:0.4rem;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 24A12 12 0 1 1 12 0a12 12 0 0 1 0 24z"/></svg>
+                🚀 Abrir Google AI Studio na Conta Google ↗
+              </a>
+              <button id="p-google-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar credenciais ativas do Gemini CLI (~/.gemini/oauth_creds.json)">⚡ Importar do Gemini CLI</button>
+              <button id="p-google-start" type="button" class="ghost sm" style="display:none;">Login Google Direto</button>
+            </div>
+            <p class="muted" style="font-size:0.78rem;margin:0;">Ao abrir o Google AI Studio com sua Conta Google pessoal, sua cota gratuita de 10M tokens/5h é gerada instantaneamente em 1 clique sem cartão.</p>
           </section>
           <section id="p-openai-oauth-actions" class="provider-oauth-actions" hidden>
             <p>Conecte sua conta <strong>ChatGPT (Go · Plus · Pro)</strong> via OpenAI Codex Device Flow oficial.</p>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
               <button id="p-openai-start" type="button" class="apple-btn-direct-connect apple-btn-openai" style="min-height:36px;padding:0.4rem 0.9rem;">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073z"/></svg>
-                Entrar com Conta ChatGPT / Codex
+                Iniciar Conexão Oficial (auth.openai.com)
               </button>
               <button id="p-openai-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar sessão ativa do Codex CLI (~/.codex/auth.json)">⚡ Importar do Codex CLI</button>
             </div>
             <p id="p-openai-start-status" role="status" aria-live="polite"></p>
-            <div id="p-openai-flow" hidden style="margin-top:0.6rem;padding:0.75rem;border-radius:10px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);">
-              <p style="margin:0 0 0.4rem 0;">Código de ativação: <strong id="p-openai-code" style="font-family:monospace;font-size:1.15rem;letter-spacing:1px;color:#10b981;"></strong></p>
-              <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                <a id="p-openai-link" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer" class="provider-portal-link" style="min-height:32px;padding:0.35rem 0.75rem;">Abrir auth.openai.com/codex/device</a>
+            <div id="p-openai-flow" hidden style="margin-top:0.6rem;padding:0.85rem;border-radius:10px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);text-align:center;">
+              <p style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--text-secondary);">Passo 1: Código de ativação gerado:</p>
+              <div style="display:inline-flex;align-items:center;gap:0.6rem;padding:0.4rem 1rem;background:rgba(0,0,0,0.3);border:1px solid rgba(16,185,129,0.4);border-radius:8px;margin-bottom:0.6rem;">
+                <strong id="p-openai-code" style="font-family:monospace;font-size:1.35rem;letter-spacing:2px;color:#10b981;"></strong>
                 <button id="p-openai-copy" class="ghost sm" type="button">Copiar código</button>
               </div>
-              <p id="p-openai-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.4rem 0 0 0;font-size:0.78rem;">Aguardando autorização no navegador...</p>
+              <p style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--text-secondary);">Passo 2: Clique abaixo para autorizar no site oficial da OpenAI:</p>
+              <a id="p-openai-link" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer" class="apple-btn-direct-connect apple-btn-openai" style="min-height:36px;padding:0.5rem 1rem;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;width:100%;box-sizing:border-box;">
+                🚀 Abrir auth.openai.com/codex/device no Navegador ↗
+              </a>
+              <p id="p-openai-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.5rem 0 0 0;font-size:0.8rem;">Aguardando autorização no navegador...</p>
             </div>
           </section>
           <section id="p-claude-oauth-actions" class="provider-oauth-actions" hidden>
@@ -1329,18 +1372,22 @@
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
               <button id="p-claude-start" type="button" class="apple-btn-direct-connect apple-btn-anthropic" style="min-height:36px;padding:0.4rem 0.9rem;">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13.827 1.558a2.443 2.443 0 0 0-3.654 0L.595 12.392a2.443 2.443 0 0 0 0 3.454l9.578 9.578a2.443 2.443 0 0 0 3.454 0l9.578-9.578a2.443 2.443 0 0 0 0-3.454L13.827 1.558z"/></svg>
-                Entrar com Conta Claude
+                Iniciar Conexão Oficial (claude.ai)
               </button>
               <button id="p-claude-import-btn" type="button" class="ghost sm" style="display:none;" title="Importar sessão ativa do Claude Code CLI (~/.claude/.credentials.json)">⚡ Importar do Claude Code</button>
             </div>
             <p id="p-claude-start-status" role="status" aria-live="polite"></p>
-            <div id="p-claude-flow" hidden style="margin-top:0.6rem;padding:0.75rem;border-radius:10px;background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.25);">
-              <p style="margin:0 0 0.4rem 0;font-size:0.8rem;">Após autorizar na página da Anthropic, cole o código ou URL de callback aqui:</p>
+            <div id="p-claude-flow" hidden style="margin-top:0.6rem;padding:0.85rem;border-radius:10px;background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.3);text-align:center;">
+              <p style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--text-secondary);">Passo 1: Clique abaixo para autorizar no site oficial da Anthropic:</p>
+              <a id="p-claude-link" href="https://claude.ai/oauth/authorize" target="_blank" rel="noopener noreferrer" class="apple-btn-direct-connect apple-btn-anthropic" style="min-height:36px;padding:0.5rem 1rem;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;width:100%;box-sizing:border-box;margin-bottom:0.6rem;">
+                🚀 Abrir claude.ai/oauth/authorize no Navegador ↗
+              </a>
+              <p style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--text-secondary);">Passo 2: Após autorizar, cole o código ou URL final retornado pelo Claude:</p>
               <div style="display:flex;gap:0.4rem;align-items:center;">
-                <input id="p-claude-code-input" placeholder="Cole o código de autorização do Claude aqui" style="flex:1;" />
-                <button id="p-claude-finish-btn" type="button" class="ghost sm">Concluir Conexão</button>
+                <input id="p-claude-code-input" placeholder="Cole o código do Claude aqui (ex: sk-ant-oat... ou código de autorização)" style="flex:1;" />
+                <button id="p-claude-finish-btn" type="button" class="apple-btn-anthropic" style="padding:0.45rem 1rem;">Concluir e Ativar</button>
               </div>
-              <p id="p-claude-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.4rem 0 0 0;font-size:0.78rem;"></p>
+              <p id="p-claude-oauth-status" role="status" aria-live="polite" class="muted" style="margin:0.5rem 0 0 0;font-size:0.8rem;"></p>
             </div>
           </section>
           <div class="apple-auto-ident-banner"><span style="color:#f59e0b;font-size:0.95rem;">✨</span><div><strong>Auto-identificação inteligente:</strong> Ao conectar uma conta real, o sistema detecta os modelos disponíveis, valida o plano (Free, Plus, Pro, Ultra) e configura os tokens a se gastar (5h e semanal) automaticamente.</div></div><p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
@@ -1477,6 +1524,13 @@
             $('#p-hf-link').href = flow.verificationUri;
             $('#p-hf-start-status').textContent = '';
             $('#p-hf-flow').hidden = false;
+            try {
+              await navigator.clipboard.writeText(flow.userCode);
+              toast('Código ' + flow.userCode + ' copiado!', 'info');
+            } catch {}
+            try {
+              window.open(flow.verificationUri, '_blank');
+            } catch {}
             const flowStatus = $('#p-oauth-status');
             flowStatus.textContent = 'Aguardando autorização. Esta janela verificará a conexão automaticamente.';
             const poll = intervalSeconds => {
@@ -1534,11 +1588,19 @@
               const flow = await api(scope + '/start', { method: 'POST' });
               if (isViewStale(providerView) || generation !== flowGeneration || !dialog.open) return;
               $('#p-openai-code').textContent = flow.userCode;
-              $('#p-openai-link').href = flow.verificationUri;
+              const targetUrl = flow.verificationUriComplete || flow.verificationUri || 'https://auth.openai.com/codex/device';
+              $('#p-openai-link').href = targetUrl;
               $('#p-openai-start-status').textContent = '';
               $('#p-openai-flow').hidden = false;
+              try {
+                await navigator.clipboard.writeText(flow.userCode);
+                toast('Código ' + flow.userCode + ' copiado para a área de transferência!', 'info');
+              } catch {}
+              try {
+                window.open(targetUrl, '_blank');
+              } catch {}
               const flowStatus = $('#p-openai-oauth-status');
-              flowStatus.textContent = 'Aguardando autorização no navegador. Esta janela verificará a ativação automaticamente.';
+              flowStatus.textContent = 'Página oficial de login aberta! Esta janela detectará a ativação automaticamente assim que confirmada.';
               const poll = intervalSeconds => {
                 openaiPollTimer = setTimeout(async () => {
                   if (generation !== flowGeneration || isViewStale(providerView) || !dialog.open) return;
@@ -1591,10 +1653,13 @@
               await saveProviderSettings();
               const started = await api(accountPath(account.id) + '/oauth/claude/start', { method: 'POST' });
               claudeAuthState = started.state;
+              $('#p-claude-link').href = started.authorizationUrl;
               $('#p-claude-flow').hidden = false;
-              status.textContent = 'Página de autorização aberta. Conclua o login e cole o código abaixo.';
+              status.textContent = 'Página oficial de autorização aberta! Conclua o login na Anthropic e cole o código abaixo.';
               status.className = 'muted';
-              window.open(started.authorizationUrl, '_blank');
+              try {
+                window.open(started.authorizationUrl, '_blank');
+              } catch {}
             } catch (err) {
               if (!isViewStale(providerView) && dialog.open) { status.textContent = err.message; status.className = 'error'; }
             } finally {
@@ -2166,17 +2231,23 @@
         const directAccBtn = event.target.closest('[data-direct-account]');
         if (directAccBtn && !directAccBtn.disabled) {
           const provName = directAccBtn.dataset.directAccount;
-          const isOauthProvider = ['gemini', 'huggingface'].includes(provName);
-          const oauthActive = Boolean(connectionOptions[provName]?.oauth?.enabled);
           openProvider(provName, directAccBtn, null, {
             directAccount: true,
-            authMode: isOauthProvider && oauthActive ? 'oauth' : 'apiKey',
-            autoStartOAuth: isOauthProvider && oauthActive,
+            authMode: 'oauth',
+            autoStartOAuth: true,
           });
           return;
         }
         const connect = event.target.closest('[data-connect-provider]');
-        if (connect) { openProvider(connect.dataset.connectProvider, connect); return; }
+        if (connect) {
+          const provName = connect.dataset.connectProvider;
+          const isOauthSupported = ['openai', 'anthropic', 'gemini', 'huggingface'].includes(provName);
+          openProvider(provName, connect, null, {
+            authMode: isOauthSupported ? 'oauth' : 'apiKey',
+            autoStartOAuth: isOauthSupported,
+          });
+          return;
+        }
         const openOllamaBtn = event.target.closest('[data-open-ollama-models]');
         if (openOllamaBtn && !openOllamaBtn.disabled) {
           const ollamaAccount = accounts.find(a => a.providerName === 'ollama');

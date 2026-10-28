@@ -734,11 +734,10 @@ export async function startOpenAICodexDeviceFlow(
 ) {
   const clientId = environment.OPENAI_CODEX_CLIENT_ID ?? OPENAI_CODEX_CLIENT_ID;
   const account = await resolveOAuthAccount('openai', accountId);
-  const form = new URLSearchParams({ client_id: clientId });
   const response = await fetch(OPENAI_DEVICE_USERCODE_URL, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: form,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId }),
     signal: oauthRequestSignal(),
   }).catch(() => {
     throw new ProviderOAuthError(
@@ -825,15 +824,14 @@ export async function pollOpenAICodexDeviceFlow(
     }
     const clientId = environment.OPENAI_CODEX_CLIENT_ID ?? OPENAI_CODEX_CLIENT_ID;
     const deviceAuthId = decryptCredential(flow.deviceAuthIdEncrypted, env.JWT_SECRET) ?? '';
-    const form = new URLSearchParams({
-      device_auth_id: deviceAuthId,
-      user_code: flow.userCode,
-      client_id: clientId,
-    });
     const response = await fetch(OPENAI_DEVICE_TOKEN_URL, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: form,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        device_auth_id: deviceAuthId,
+        user_code: flow.userCode,
+        client_id: clientId,
+      }),
       signal: oauthRequestSignal(),
     }).catch(() => {
       throw new ProviderOAuthError(
