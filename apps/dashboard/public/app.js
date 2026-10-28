@@ -992,18 +992,15 @@
         const state = usageByAccount.get(account.id);
         if (!state) return '<p class="muted" role="status">Carregando uso da conta...</p>';
         if (state.error) return '<p class="muted">Uso indisponível. <button class="ghost" data-refresh-usage="' + esc(account.id) + '">Tentar novamente</button></p>';
-        const windowHtml = (key, label) => {
+        const renderPill = (key, label, longLabel) => {
           const window = state[key];
           const knownTokens = Number.isFinite(window?.observedTokens) ? window.observedTokens : window?.totalTokens;
-          const tokens = Number.isFinite(knownTokens) ? fmtTokens(knownTokens) + ' reportados' : 'Uso indisponível';
-          const cost = window?.pricingConfigured === false || window?.missingPricingAttempts > 0 ? 'Tarifa não configurada' : Number.isFinite(window?.estimatedCost) ? fmtCost(window.estimatedCost) + ' estimado' : 'Gasto estimado indisponível';
-          const missingUsage = Number(window?.missingUsageAttempts || 0);
-          const tierQ = account.accountTier ? tierQuotas[account.accountTier.toLowerCase()] : null;
-          const quotaMax = tierQ ? (key === 'last5h' ? tierQ.q5h : tierQ.q7d) : null;
-          const quotaInfo = quotaMax && Number.isFinite(knownTokens) ? ' · Créditos: ' + fmtTokens(Math.max(0, quotaMax - knownTokens)) + ' livres de ' + fmtTokens(quotaMax) : '';
-          return '<div class="provider-usage-item"><span class="usage-label">' + label + '</span><span class="usage-tokens">' + tokens + '</span><small class="muted">' + (Number.isFinite(window?.calls) ? window.calls + ' chamadas · ' : '') + (missingUsage ? missingUsage + ' tentativas sem tokens reportados · ' : '') + cost + quotaInfo + '</small></div>';
+          const tokens = Number.isFinite(knownTokens) ? fmtTokens(knownTokens) : 'Uso indisponível';
+          const unconfiguredPricing = window?.pricingConfigured === false || window?.missingPricingAttempts > 0;
+          const cost = unconfiguredPricing ? 'Tarifa não configurada' : Number.isFinite(window?.estimatedCost) ? fmtCost(window.estimatedCost) : '';
+          return '<div class="usage-pill-mini" data-metric="' + key + '"><span class="usage-k">' + label + '</span> <span class="usage-v">' + tokens + '</span><span class="sr-only"> ' + longLabel + ' ' + cost + '</span></div>';
         };
-        return '<div class="provider-usage-row">' + windowHtml('last5h', 'Últimas 5 horas') + windowHtml('last7d', 'Últimos 7 dias (Semanal)') + '</div><small class="muted">Tokens reportados pelo modelo; custo é estimado pelo gateway e não representa o saldo ou a quota do provedor.</small>';
+        return '<div class="provider-usage-row compact">' + renderPill('last5h', '5h:', 'Últimas 5 horas') + renderPill('last7d', 'Semanal:', 'Últimos 7 dias') + '</div>';
       };
       const loadUsage = async account => {
         const generation = (usageGenerations.get(account.id) || 0) + 1;

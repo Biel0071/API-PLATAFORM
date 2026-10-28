@@ -2458,29 +2458,29 @@ pre, code { overflow-wrap: anywhere; }
 }
 
 .provider-logo {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
 }
 
 .provider-logo img {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .provider-card h3 {
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 660;
   margin: 0;
   letter-spacing: -0.015em;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 .provider-card-heading p {
-  font-size: 0.71rem;
-  line-height: 1.3;
-  margin: 0.1rem 0 0;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  margin: 0.08rem 0 0;
   color: #94a3b8;
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -2489,17 +2489,17 @@ pre, code { overflow-wrap: anywhere; }
 }
 
 .provider-card-status {
-  font-size: 0.7rem;
-  gap: 0.38rem;
+  font-size: 0.68rem;
+  gap: 0.35rem;
 }
 
 .apple-active-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.63rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  padding: 0.12rem 0.45rem;
+  padding: 0.1rem 0.42rem;
   border-radius: 999px;
   background: rgba(48, 209, 88, 0.14);
   color: #34d399;
@@ -2508,56 +2508,60 @@ pre, code { overflow-wrap: anywhere; }
 }
 
 .provider-models {
-  font-size: 0.71rem;
+  font-size: 0.7rem;
   color: #94a3b8;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 .provider-card-model-tags {
-  gap: 0.28rem;
-  margin-top: 0.05rem;
+  gap: 0.25rem;
+  margin-top: 0.02rem;
 }
 
 .model-tag {
-  font-size: 0.65rem;
-  padding: 0.1rem 0.4rem;
+  font-size: 0.63rem;
+  padding: 0.08rem 0.35rem;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--apple-hairline);
-  max-width: 170px;
+  max-width: 160px;
 }
 
 .provider-usage-panel {
-  padding: 0.45rem 0.6rem;
-  gap: 0.25rem;
-  border-radius: 10px;
-  background: rgba(8, 12, 20, 0.48);
+  padding: 0.3rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(8, 12, 20, 0.46);
   border: 1px solid var(--apple-hairline);
+  margin: 0.2rem 0;
 }
 
-.provider-usage-row {
-  gap: 0.5rem;
+.provider-usage-row.compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
-.usage-label {
-  font-size: 0.61rem;
+.usage-pill-mini {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.32rem;
+  font-size: 0.74rem;
+  font-family: var(--font-apple);
+}
+
+.usage-pill-mini .usage-k {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 
-.usage-tokens {
-  font-size: 0.76rem;
+.usage-pill-mini .usage-v {
+  font-weight: 650;
+  color: #f1f5f9;
   font-variant-numeric: tabular-nums;
-}
-
-.provider-usage-item small {
-  font-size: 0.65rem;
-  line-height: 1.25;
-}
-
-.provider-usage-panel > small.muted {
-  font-size: 0.6rem;
-  line-height: 1.2;
-  opacity: 0.68;
 }
 
 .provider-card-actions {
