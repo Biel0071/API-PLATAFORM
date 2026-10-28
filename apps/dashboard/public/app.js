@@ -445,10 +445,16 @@
           <div class="cards" id="home-modules"></div>
         </div>
         <div class="section">
-          <h2>Providers em Tempo Real</h2>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.75rem;">
+            <h2 style="margin:0;">Providers em Tempo Real</h2>
+            <div class="apple-segmented" role="group" aria-label="Filtrar tabela de providers">
+              <button type="button" class="apple-seg-btn active" data-home-filter="all">Todos</button>
+              <button type="button" class="apple-seg-btn" data-home-filter="online">Somente Online</button>
+            </div>
+          </div>
           <div class="table-container">
             <table id="home-providers-table">
-              <thead><tr><th>Provider</th><th>Status</th><th>Latência</th><th>Chamadas (24h / 30d)</th><th>Tokens reportados</th><th>Tokens estimados</th><th>Custo estimado (USD)</th></tr></thead>
+              <thead><tr><th>Provider</th><th>Status</th><th>Latência</th><th>Chamadas (24h / 30d)</th><th>Tokens reportados</th><th>Tokens estimados</th><th>Custo estimado (USD)</th><th>Ações</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -456,7 +462,8 @@
 
 
       const updateHome = async () => {
-        if (location.hash.replace('#/', '') !== 'home' && location.hash !== '') return;
+        const routeName = location.hash.replace(/^#\/?/, '') || 'home';
+        if (routeName !== 'home') return;
         try {
           const [ { overview }, health, usageRes ] = await Promise.all([
             api('/admin/overview'),
@@ -545,6 +552,24 @@
             const mods = ['API','Dashboard','Postgres','Redis','Mission','Streaming','Docker','SSL'];
             $('#home-modules').innerHTML = mods.map(m => card(m, health[m.toLowerCase()] ? 'ONLINE' : (health.checks?.[m.toLowerCase()] ? 'ONLINE' : 'N/A'), health[m.toLowerCase()] ? 'ok' : '')).join('');
 
+            let homeFilter = 'all';
+            content().querySelectorAll('[data-home-filter]').forEach(b => {
+              b.onclick = () => {
+                homeFilter = b.dataset.homeFilter;
+                content().querySelectorAll('[data-home-filter]').forEach(btn => btn.classList.toggle('active', btn === b));
+                filterRows();
+              };
+            });
+
+            const filterRows = () => {
+              const rows = $('#home-providers-table tbody')?.querySelectorAll('tr');
+              if (!rows) return;
+              rows.forEach(r => {
+                const isOnline = r.dataset.isOnline === 'true';
+                r.style.display = homeFilter === 'online' && !isOnline ? 'none' : '';
+              });
+            };
+
             const tbody = $('#home-providers-table tbody');
             if (tbody && health.providers) {
               const usageByProvider = new Map((overview.providers || []).map(provider => [provider.name, provider.usage]));
@@ -553,16 +578,19 @@
                   const u30 = prov30dMap.get(name) || usage;
                   const reqText = u30.requests > usage.requests ? `${Number(usage.requests).toLocaleString('pt-BR')} <small class="muted">(${Number(u30.requests).toLocaleString('pt-BR')} 30d)</small>` : Number(usage.requests).toLocaleString('pt-BR');
                   const tokText = u30.observedTokens > usage.observedTokens ? `${Number(usage.observedTokens).toLocaleString('pt-BR')} <small class="muted">(${Number(u30.observedTokens).toLocaleString('pt-BR')} 30d)</small>` : Number(usage.observedTokens).toLocaleString('pt-BR');
-                  return `<tr>
+                  const isOnline = p.status === 'ONLINE' || p.status === 'ok';
+                  return `<tr data-is-online="${isOnline}">
                   <td>${providerIdentity(name)}</td>
-                  <td><span class="badge ${p.status === 'ONLINE' ? 'ok' : ''}">${esc(p.status || 'UNKNOWN')}</span></td>
+                  <td><span class="badge ${isOnline ? 'ok' : ''}">${esc(p.status || 'UNKNOWN')}</span></td>
                   <td>${p.latency == null ? '—' : fmtMs(p.latency)}</td>
                   <td>${reqText}</td>
                   <td>${tokText}</td>
                   <td>${Number(u30.estimatedTokens || usage.estimatedTokens || 0).toLocaleString('pt-BR')}</td>
                   <td>$${Number(Math.max(u30.estimatedCost || 0, usage.estimatedCost || 0)).toFixed(4)}</td>
+                  <td><a href="#/providers" class="ghost sm" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.25rem 0.6rem;border-radius:var(--radius-sm);font-size:0.75rem;">Dados (75%)</a></td>
                 </tr>`; }
               ).join('');
+              filterRows();
             }
           }
         } catch (e) {
@@ -891,19 +919,46 @@
       content().innerHTML = `
         <section class="providers-page">
           <div class="providers-header">
-            <div><h1>Provedores de IA</h1><p class="muted">Conecte suas contas e escolha os modelos para suas aplicações.</p></div>
+            <div><h1>Provedores de IA</h1><p class="muted">Conecte suas contas, gerencie créditos 5h/semanal e inspecione modelos em detalhes.</p></div>
             <button id="p-add" aria-label="Adicionar provedor"><span class="provider-plus" aria-hidden="true">+</span> Adicionar provedor</button>
           </div>
           <div id="p-defaults" class="provider-defaults" aria-label="Provedores padrão"></div>
-          <section class="provider-section" aria-labelledby="p-connected-title"><div class="provider-section-heading"><h2 id="p-connected-title">Suas conexões</h2><span id="p-count" class="muted"></span></div><div id="p-connected" class="provider-grid"></div></section>
-          <section class="provider-section" aria-labelledby="p-catalog-title"><div class="provider-section-heading"><div><h2 id="p-catalog-title">Conectar uma conta</h2><p class="muted">Adicione uma API key ou conecte um servidor próprio.</p></div></div><div id="p-catalog" class="provider-grid"></div></section>
+          <section class="provider-section" aria-labelledby="p-connected-title">
+            <div class="provider-section-heading">
+              <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                <h2 id="p-connected-title">Suas conexões</h2>
+                <span id="p-count" class="muted"></span>
+              </div>
+              <div class="apple-segmented" role="group" aria-label="Filtrar conexões">
+                <button type="button" class="apple-seg-btn active" data-filter-connected="all">Todas</button>
+                <button type="button" class="apple-seg-btn" data-filter-connected="active">Conexões Ativas</button>
+              </div>
+            </div>
+            <div id="p-connected" class="provider-grid"></div>
+          </section>
+          <section class="provider-section" aria-labelledby="p-catalog-title">
+            <div class="provider-section-heading">
+              <div><h2 id="p-catalog-title">Conectar uma conta</h2><p class="muted">Adicione uma API key, puxe tokens Pro/Plus ou conecte um servidor próprio.</p></div>
+              <div class="apple-segmented" role="group" aria-label="Filtrar catálogo">
+                <button type="button" class="apple-seg-btn active" data-filter-catalog="all">Todos</button>
+                <button type="button" class="apple-seg-btn" data-filter-catalog="cloud">Cloud &amp; Tokens</button>
+                <button type="button" class="apple-seg-btn" data-filter-catalog="local">Open Source Local</button>
+                <button type="button" class="apple-seg-btn" data-filter-catalog="image">Imagem</button>
+              </div>
+            </div>
+            <div id="p-catalog" class="provider-grid"></div>
+          </section>
           <p class="provider-security muted">Suas credenciais são criptografadas e nunca são exibidas após o cadastro.</p>
         </section>
         <dialog id="provider-dialog" class="provider-dialog" aria-labelledby="p-dialog-title" aria-describedby="p-dialog-description"></dialog>
-        <dialog id="ollama-models-dialog" class="provider-dialog" aria-labelledby="ollama-models-title"></dialog>`;
+        <dialog id="provider-inspector-dialog" class="provider-dialog provider-inspector-dialog" aria-labelledby="pi-title"></dialog>`;
 
       const dialog = $('#provider-dialog');
+      const inspectorDialog = $('#provider-inspector-dialog');
+      let connectedFilter = 'all';
+      let catalogFilter = 'all';
       let returnFocus;
+      let inspectorReturnFocus;
       let saving = false;
       let selectedAccount = null;
       let initialProviderSettings;
@@ -967,42 +1022,62 @@
         const panel = [...content().querySelectorAll('[data-account-usage]')].find(el => el.dataset.accountUsage === account.id);
         if (panel) panel.innerHTML = renderUsage(account);
       };
+      const computeAccountStatus = (name, account) => {
+        const health = account?.health;
+        const checkedAt = health?.checkedAt ? Date.parse(health.checkedAt) : NaN;
+        const ageMs = Number.isFinite(checkedAt) ? Math.max(0, Date.now() - checkedAt) : Infinity;
+        const freshness = ageMs < 60_000 ? 'agora' : 'há ' + Math.floor(ageMs / 60_000) + ' min';
+        const latency = Number.isFinite(health?.latencyMs) ? fmtMs(health.latencyMs) : null;
+        return !account ? ['muted', 'Adicionar conta']
+          : !account.enabled ? ['muted', 'Desativada']
+            : account.oauthNeedsReauth ? ['warn', 'Nova autorização necessária']
+              : ageMs > 5 * 60_000 ? ['muted', checkedAt ? 'Verificação desatualizada' : 'Verificar conexão']
+                : health?.ok === false ? ['error', 'Indisponível' + (latency ? ' · ' + latency : '')]
+                  : health?.ok === true && latency === null ? ['muted', 'Online · latência não medida']
+                    : health?.ok === true ? [health.latencyMs <= 1000 ? 'ok' : health.latencyMs <= 3000 ? 'warn' : 'error', (health.latencyMs <= 1000 ? 'Online' : 'Lenta') + ' · ' + latency + ' · ' + freshness]
+                      : ['muted', 'Verificar conexão'];
+      };
+      const isAccountActivelyConnected = (account) => {
+        if (!account || !account.enabled) return false;
+        const st = computeAccountStatus(account.providerName, account);
+        return st[0] === 'ok' || st[1].startsWith('Online');
+      };
       const renderCards = () => {
         $('#p-defaults').innerHTML = Object.entries(defaults || {}).map(([capability, name]) => '<span>' + esc({ chat: 'Chat', image: 'Imagens', embedding: 'Embeddings', vision: 'Visão', audio: 'Áudio' }[capability] || capability) + ' <strong>' + esc(providerTitle(name)) + '</strong></span>').join('');
-        $('#p-count').textContent = accounts.length + (accounts.length === 1 ? ' conta configurada' : ' contas configuradas');
+        const activeCount = accounts.filter(isAccountActivelyConnected).length;
+        $('#p-count').textContent = accounts.length + (accounts.length === 1 ? ' conta configurada' : ' contas configuradas') + (activeCount > 0 ? ' · ' + activeCount + (activeCount === 1 ? ' ativa' : ' ativas') : '');
         const renderCard = (name, account) => {
           const live = providers.find(p => p.name === name);
-          const health = account?.health;
-          const checkedAt = health?.checkedAt ? Date.parse(health.checkedAt) : NaN;
-          const ageMs = Number.isFinite(checkedAt) ? Math.max(0, Date.now() - checkedAt) : Infinity;
-          const freshness = ageMs < 60_000 ? 'agora' : 'há ' + Math.floor(ageMs / 60_000) + ' min';
-          const latency = Number.isFinite(health?.latencyMs) ? fmtMs(health.latencyMs) : null;
-          const status = !account ? ['muted', 'Adicionar conta']
-            : !account.enabled ? ['muted', 'Desativada']
-              : account.oauthNeedsReauth ? ['warn', 'Nova autorização necessária']
-                : ageMs > 5 * 60_000 ? ['muted', checkedAt ? 'Verificação desatualizada' : 'Verificar conexão']
-                  : health?.ok === false ? ['error', 'Indisponível' + (latency ? ' · ' + latency : '')]
-                    : health?.ok === true && latency === null ? ['muted', 'Online · latência não medida']
-                      : health?.ok === true ? [health.latencyMs <= 1000 ? 'ok' : health.latencyMs <= 3000 ? 'warn' : 'error', (health.latencyMs <= 1000 ? 'Online' : 'Lenta') + ' · ' + latency + ' · ' + freshness]
-                        : ['muted', 'Verificar conexão'];
+          const status = computeAccountStatus(name, account);
+          const isActiveConnection = account
+            ? isAccountActivelyConnected(account)
+            : accounts.some(a => a.providerName === name && isAccountActivelyConnected(a));
           const useLiveModels = name === 'ollama' || Boolean(account && live?.health?.ok);
           const modelNames = [...new Set([account?.defaultModel, ...(useLiveModels ? (live?.models || []).map(model => typeof model === 'string' ? model : model.id || model.name) : [])].filter(Boolean))];
           const displayModels = modelNames.length ? modelNames : defaultPortals[name]?.models || [];
-          const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
           const result = account && testResults.get(account.id);
           const disabled = account && accountOperations.has(account.id) ? ' disabled' : '';
-          return '<article class="provider-card" ' + (account ? 'data-provider-account="' + esc(account.id) : 'data-provider-card="' + esc(name)) + '">' +
-            '<div class="provider-card-heading">' + logo(name) + '<div><h3>' + esc(account?.displayName || providerTitle(name)) + '</h3><p>' + esc(account ? providerTitle(name) : details[name].description) + '</p></div></div>' +
-            '<div class="provider-card-status"><span class="provider-status ' + status[0] + '"><span aria-hidden="true">●</span> ' + status[1] + '</span>' + (account?.accountTier ? '<span class="tier-badge">' + esc(account.accountTier.toUpperCase()) + '</span>' : '') + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>' +
-            (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + '</p>' : '') +
-            '<div class="provider-card-model-tags" aria-label="Modelos disponíveis ou sugeridos">' + (name === 'ollama' ? displayModels : displayModels.slice(0, 3)).map(model => { const osInfo = openSourceModelRoles[model]; return '<span class="model-tag" title="' + esc(osInfo ? `${model} — ${osInfo.alias} (${osInfo.role})` : model) + '">' + esc(model) + (osInfo ? ' · ' + esc(osInfo.alias.split(' · ')[0]) : '') + '</span>'; }).join('') + '</div>' +
+          const visibleModels = displayModels.slice(0, 2);
+          const extraModelsCount = Math.max(0, displayModels.length - visibleModels.length);
+          return '<article class="provider-card' + (isActiveConnection ? ' provider-card-active' : '') + '" ' + (account ? 'data-provider-account="' + esc(account.id) : 'data-provider-card="' + esc(name)) + '">' +
+            '<div class="provider-card-heading" data-inspect-heading="' + esc(account ? 'account:' + account.id : 'provider:' + name) + '" title="Clique para abrir pop-up 75% da tela com dados detalhados e modelos">' + logo(name) + '<div><h3>' + esc(account?.displayName || providerTitle(name)) + '</h3><p>' + esc(account ? providerTitle(name) : details[name].description) + '</p></div></div>' +
+            (account
+              ? '<div class="provider-card-status"><span class="provider-status ' + status[0] + '"><span aria-hidden="true">●</span> ' + status[1] + '</span>' + (isActiveConnection ? '<span class="apple-active-pill">✓ Ativa</span>' : '') + (account?.accountTier ? '<span class="tier-badge tier-' + esc(account.accountTier.toLowerCase()) + '">' + esc(account.accountTier.toUpperCase()) + '</span>' : '') + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>'
+              : (isActiveConnection ? '<div class="provider-card-status"><span class="provider-status ok"><span aria-hidden="true">●</span> Conexão ativa</span>' + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>' : '')) +
+            (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + (account.defaultModel ? ' · ' + esc(account.defaultModel) : '') + '</p>' : '') +
+            (isActiveConnection ? '<div class="provider-card-model-tags" aria-label="Modelos ativos na conexão">' + visibleModels.map(model => { const osInfo = openSourceModelRoles[model]; return '<span class="model-tag" title="' + esc(osInfo ? `${model} — ${osInfo.alias} (${osInfo.role})` : model) + '">' + esc(model) + '</span>'; }).join('') + (extraModelsCount > 0 ? '<span class="model-tag">+' + extraModelsCount + '</span>' : '') + '</div>' : '') +
             (account ? '<div class="provider-usage-panel" data-account-usage="' + esc(account.id) + '" aria-label="Uso estimado da conta">' + renderUsage(account) + '</div>' : '') +
-            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>' + (details[name]?.kind === 'cloud' ? '<button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>' : '')) +
-            (name === 'ollama' ? '<button type="button" class="ghost provider-open-models-btn"' + disabled + ' data-open-ollama-models="' + esc(account?.id || 'catalog') + '">Abrir Modelos Open Source (' + displayModels.length + ')</button>' : (portalUrl && details[name]?.kind === 'cloud' ? '<a href="' + esc(portalUrl) + '" target="_blank" rel="noopener noreferrer" class="provider-portal-link" title="Abrir portal oficial no navegador">' + svgExternal + ' Acessar Portal</a>' : '')) + '</div>' +
+            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button type="button" class="ghost provider-inspect-btn"' + disabled + ' data-inspect-account="' + esc(account.id) + '">Dados &amp; Modelos</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>' + (details[name]?.kind === 'cloud' ? '<button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>' : '') + '<button type="button" class="ghost provider-inspect-btn" data-inspect-provider="' + esc(name) + '">' + (name === 'ollama' ? 'Modelos (' + displayModels.length + ')' : 'Dados &amp; Modelos') + '</button>') + '</div>' +
             (account ? '<p class="provider-test-result ' + esc(result?.kind || '') + '" data-account-result="' + esc(account.id) + '" role="status">' + esc(result?.message || '') + '</p>' : '') + '</article>';
         };
-        $('#p-connected').innerHTML = accounts.length ? accounts.map(account => renderCard(account.providerName, account)).join('') : '<div class="provider-empty"><h3>Sua primeira conexão começa aqui</h3><p class="muted">Escolha um provedor abaixo ou clique em + para adicionar.</p></div>';
-        $('#p-catalog').innerHTML = choices.map(name => renderCard(name)).join('');
+        const visibleAccounts = connectedFilter === 'active' ? accounts.filter(isAccountActivelyConnected) : accounts;
+        $('#p-connected').innerHTML = visibleAccounts.length
+          ? visibleAccounts.map(account => renderCard(account.providerName, account)).join('')
+          : (accounts.length && connectedFilter === 'active'
+            ? '<div class="provider-empty"><h3>Nenhuma conexão ativa verificada no momento</h3><p class="muted">Use "Testar conexão" ou "⚡ Tokens Pro / Plus" em uma conta para ativá-la em tempo real.</p></div>'
+            : '<div class="provider-empty"><h3>Sua primeira conexão começa aqui</h3><p class="muted">Escolha um provedor abaixo ou clique em + para adicionar.</p></div>');
+        const visibleCatalog = catalogFilter === 'all' ? choices : choices.filter(name => details[name]?.kind === catalogFilter);
+        $('#p-catalog').innerHTML = visibleCatalog.map(name => renderCard(name)).join('');
       };
       const dialogConfig = () => selectedAccount ? {
         enabled: selectedAccount.enabled, baseUrl: selectedAccount.baseUrl,
@@ -1114,7 +1189,15 @@
       dialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
       dialog.addEventListener('click', event => { if (event.target === dialog) closeDialog(); });
       dialog.addEventListener('close', () => { stopOAuthPolling(); dialog.replaceChildren(); if (returnFocus?.isConnected) returnFocus.focus(); });
-      providerView.signal.addEventListener('abort', () => { stopOAuthPolling(); if (dialog.open) dialog.close(); dialog.remove(); }, { once: true });
+      inspectorDialog.addEventListener('click', event => { if (event.target === inspectorDialog) inspectorDialog.close(); });
+      inspectorDialog.addEventListener('close', () => { inspectorDialog.replaceChildren(); if (inspectorReturnFocus?.isConnected) inspectorReturnFocus.focus(); });
+      providerView.signal.addEventListener('abort', () => {
+        stopOAuthPolling();
+        if (dialog.open) dialog.close();
+        dialog.remove();
+        if (inspectorDialog?.open) inspectorDialog.close();
+        inspectorDialog?.remove();
+      }, { once: true });
       const openProvider = (name, trigger, account = null) => {
         selectedAccount = account;
         returnFocus = trigger;
@@ -1425,88 +1508,362 @@
         dialog.showModal();
         (selectedAccount ? $('#p-display-name') : $('#p-name')).focus();
       };
+
+      const openProviderInspector = (name, trigger, account = null) => {
+        inspectorReturnFocus = trigger;
+        const live = providers.find(p => p.name === name);
+        let currentAcc = account || accounts.find(a => a.providerName === name && isAccountActivelyConnected(a)) || accounts.find(a => a.providerName === name) || null;
+        const providerAccounts = accounts.filter(a => a.providerName === name);
+        const bridgeProfile = programmingBridgeProfiles[name] || { label: providerTitle(name), defaultTier: 'pro', defaultModel: defaultPortals[name]?.models?.[0] || '', quotaLabel: 'Plus · Pro · Ultra' };
+        const rawLiveModels = (live?.models || []).map(m => typeof m === 'string' ? m : m.id || m.name).filter(Boolean);
+        const fallbackModels = defaultPortals[name]?.models || [];
+        const allModels = [...new Set([...(currentAcc?.defaultModel ? [currentAcc.defaultModel] : []), ...rawLiveModels, ...fallbackModels])];
+        const currentTier = (currentAcc?.accountTier || bridgeProfile.defaultTier || 'pro').toLowerCase();
+        const tierQ = tierQuotas[currentTier] || tierQuotas.pro;
+        const usageState = currentAcc ? usageByAccount.get(currentAcc.id) : null;
+        const u5h = usageState?.last5h;
+        const u7d = usageState?.last7d;
+        const tok5h = Number.isFinite(u5h?.observedTokens) ? u5h.observedTokens : Number.isFinite(u5h?.totalTokens) ? u5h.totalTokens : 0;
+        const tok7d = Number.isFinite(u7d?.observedTokens) ? u7d.observedTokens : Number.isFinite(u7d?.totalTokens) ? u7d.totalTokens : 0;
+        const pct5h = Math.min(100, Math.max(2, Math.round((tok5h / (tierQ.q5h || 1)) * 100)));
+        const pct7d = Math.min(100, Math.max(2, Math.round((tok7d / (tierQ.q7d || 1)) * 100)));
+        const cost5h = u5h?.pricingConfigured === false || u5h?.missingPricingAttempts > 0 ? 'Tarifa não configurada' : Number.isFinite(u5h?.estimatedCost) ? fmtCost(u5h.estimatedCost) : 'US$ 0.00';
+        const cost7d = u7d?.pricingConfigured === false || u7d?.missingPricingAttempts > 0 ? 'Tarifa não configurada' : Number.isFinite(u7d?.estimatedCost) ? fmtCost(u7d.estimatedCost) : 'US$ 0.00';
+        const isOnline = currentAcc ? isAccountActivelyConnected(currentAcc) : (name === 'ollama' && live?.health?.ok === true);
+        const currentDefaultModel = currentAcc?.defaultModel || bridgeProfile.defaultModel || allModels[0] || 'auto';
+        const portalUrl = connectionOptions[name]?.apiKey?.portalUrl || defaultPortals[name]?.portalUrl;
+
+        inspectorDialog.innerHTML = `
+          <div class="inspector-shell">
+            <header class="inspector-header">
+              <div class="inspector-identity">
+                ${logo(name)}
+                <div class="inspector-title-block">
+                  <h2 id="pi-title">${esc(currentAcc?.displayName || providerTitle(name))}</h2>
+                  <p>${esc(details[name]?.description || providerTitle(name))} · ${esc(details[name]?.kind === 'local' ? 'Servidor Local 24/7' : 'Nuvem / API Gateway')}</p>
+                  <div class="inspector-badges">
+                    <span class="provider-status ${isOnline ? 'ok' : 'muted'}"><span aria-hidden="true">●</span> ${isOnline ? 'Online · ' + (currentAcc?.health?.latencyMs ? fmtMs(currentAcc.health.latencyMs) : 'Ativo') : (currentAcc ? 'Verificar conexão' : 'Sem conta conectada')}</span>
+                    ${currentAcc?.accountTier ? `<span class="tier-badge tier-${esc(currentAcc.accountTier.toLowerCase())}">${esc(currentAcc.accountTier.toUpperCase())}</span>` : `<span class="tier-badge">${esc(bridgeProfile.defaultTier.toUpperCase())}</span>`}
+                    ${defaults?.chat === name ? '<span class="provider-default-label">Padrão Chat Global</span>' : ''}
+                    <span class="model-tag">${allModels.length} modelos detectados</span>
+                  </div>
+                </div>
+              </div>
+              <div class="inspector-header-actions">
+                ${currentAcc ? `<button type="button" class="ghost sm" id="pi-test-btn">Testar Conexão</button>` : ''}
+                ${details[name]?.kind === 'cloud' ? `<button type="button" class="ghost sm provider-pull-card-btn" id="pi-pull-btn">⚡ Puxar Tokens Pro/Plus</button>` : ''}
+                <button type="button" class="ghost sm" id="pi-config-btn">${currentAcc ? 'Editar Conta' : 'Conectar Conta'}</button>
+                ${portalUrl ? `<a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-portal-link" style="min-height:34px;padding:0.35rem 0.75rem;font-size:0.76rem;">${svgExternal} Portal Oficial</a>` : ''}
+                <button type="button" id="pi-close" class="ghost provider-dialog-close" style="position:static;width:34px;height:34px;margin-left:0.4rem;" aria-label="Fechar pop-up">×</button>
+              </div>
+            </header>
+
+            ${providerAccounts.length > 1 ? `
+              <div style="padding:0.5rem 1.5rem;background:rgba(8,12,20,0.55);border-bottom:1px solid var(--apple-hairline);display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                <span class="muted" style="font-size:0.75rem;font-weight:600;">Contas conectadas (${providerAccounts.length}):</span>
+                <div class="apple-segmented" role="group">
+                  ${providerAccounts.map(a => `<button type="button" class="apple-seg-btn ${a.id === currentAcc?.id ? 'active' : ''}" data-pi-switch="${esc(a.id)}">${esc(a.displayName || a.id)}</button>`).join('')}
+                </div>
+              </div>` : ''}
+
+            <div class="inspector-body">
+              <section class="inspector-bento-grid">
+                <article class="inspector-bento-card">
+                  <span class="bento-kicker">Janela 5 Horas · Consumo</span>
+                  <span class="bento-value">${fmtTokens(tok5h)}</span>
+                  <div class="apple-quota-track" title="${pct5h}% da cota 5h"><div class="apple-quota-fill" style="width:${pct5h}%;"></div></div>
+                  <span class="bento-sub">${(Number.isFinite(u5h?.calls) ? u5h.calls + ' chamadas · ' : '') + cost5h}</span>
+                  <span class="bento-sub" style="color:#38bdf8;">Créditos livres: ${fmtTokens(Math.max(0, tierQ.q5h - tok5h))} de ${fmtTokens(tierQ.q5h)}</span>
+                </article>
+
+                <article class="inspector-bento-card">
+                  <span class="bento-kicker">Janela Semanal (7 Dias)</span>
+                  <span class="bento-value">${fmtTokens(tok7d)}</span>
+                  <div class="apple-quota-track" title="${pct7d}% da cota semanal"><div class="apple-quota-fill" style="width:${pct7d}%;"></div></div>
+                  <span class="bento-sub">${(Number.isFinite(u7d?.calls) ? u7d.calls + ' chamadas · ' : '') + cost7d}</span>
+                  <span class="bento-sub" style="color:#34d399;">Créditos livres: ${fmtTokens(Math.max(0, tierQ.q7d - tok7d))} de ${fmtTokens(tierQ.q7d)}</span>
+                </article>
+
+                <article class="inspector-bento-card">
+                  <span class="bento-kicker">Plano &amp; Quota de Conta</span>
+                  <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin:0.15rem 0;">
+                    <span class="tier-badge tier-${esc(currentTier)}">${esc(currentTier.toUpperCase())}</span>
+                    <span style="font-size:0.75rem;font-weight:600;">${name === 'ollama' ? 'Ilimitado Local' : fmtTokens(tierQ.q5h) + '/5h'}</span>
+                  </div>
+                  <span class="bento-sub">Modo: ${esc(currentAcc?.authMode === 'local' ? 'Servidor Local 24/7' : currentAcc?.authMode === 'oauth' ? 'OAuth 2.0' : 'API Key / Token')}</span>
+                  ${details[name]?.kind === 'cloud' ? `
+                    <div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.3rem;">
+                      <button type="button" class="ghost sm" style="font-size:0.68rem;padding:0.15rem 0.45rem;" data-pi-upgrade="go">Go (500k)</button>
+                      <button type="button" class="ghost sm" style="font-size:0.68rem;padding:0.15rem 0.45rem;" data-pi-upgrade="plus">Plus (2.5M)</button>
+                      <button type="button" class="ghost sm" style="font-size:0.68rem;padding:0.15rem 0.45rem;" data-pi-upgrade="pro">Pro (10M)</button>
+                      <button type="button" class="ghost sm" style="font-size:0.68rem;padding:0.15rem 0.45rem;" data-pi-upgrade="ultra">Ultra (50M)</button>
+                    </div>` : ''}
+                </article>
+
+                <article class="inspector-bento-card">
+                  <span class="bento-kicker">Orquestração &amp; Roteamento</span>
+                  <span class="bento-value" style="font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(currentDefaultModel)}">${esc(currentDefaultModel)}</span>
+                  <span class="bento-sub">Endpoint: <code>${esc(currentAcc?.baseUrl || defaultPortals[name]?.portalUrl || 'Cloud Gateway Oficial')}</code></span>
+                  <span class="bento-sub">Fallback Fênix: Prioridade 1 · Auto-recovery ativo</span>
+                </article>
+              </section>
+
+              <section>
+                <div class="inspector-section-title">
+                  <div>
+                    <h3>Modelos &amp; Capacidades (${allModels.length})</h3>
+                    <p class="muted" style="margin:0.1rem 0 0;font-size:0.75rem;">Modelos suportados, papel arquitetural no sistema e ativação em 1 clique</p>
+                  </div>
+                  <a href="#/playground" class="ghost sm" id="pi-goto-playground" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.3rem 0.65rem;border-radius:var(--radius-sm);font-size:0.76rem;">Abrir no Playground</a>
+                </div>
+                <div class="inspector-model-grid">
+                  ${allModels.map(modelId => {
+                    const isDefault = currentDefaultModel === modelId;
+                    const osInfo = openSourceModelRoles[modelId];
+                    const isCloud = details[name]?.kind === 'cloud';
+                    const tagTitle = osInfo ? osInfo.alias : (isCloud ? `${providerTitle(name)} Engine` : 'Motor de Inferência');
+                    const roleDesc = osInfo ? `${osInfo.role} · ${osInfo.engine}` : (isCloud ? 'Inferência multimodal de alto desempenho com tokens reportados' : 'Execução dedicada local 24/7');
+                    return `
+                      <div class="inspector-model-card ${isDefault ? 'is-default' : ''}">
+                        <div>
+                          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;flex-wrap:wrap;">
+                            <strong style="font-size:0.86rem;color:#f8fafc;word-break:break-all;">${esc(modelId)}</strong>
+                            ${isDefault ? '<span class="badge ok" style="font-size:0.62rem;padding:0.15rem 0.45rem;">Padrão da Conta</span>' : ''}
+                          </div>
+                          <div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin:0.35rem 0 0.25rem;">
+                            <span class="tier-badge" style="font-size:0.62rem;">${esc(tagTitle)}</span>
+                            <span class="model-tag" style="font-size:0.62rem;">${name === 'ollama' ? 'Local Gratuito' : 'Tarifa do Provedor'}</span>
+                          </div>
+                          <p class="muted" style="margin:0;font-size:0.74rem;line-height:1.35;">${esc(roleDesc)}</p>
+                        </div>
+                        <div style="display:flex;gap:0.35rem;flex-wrap:wrap;margin-top:0.4rem;justify-content:flex-end;">
+                          ${currentAcc && !isDefault ? `<button type="button" class="ghost sm" style="font-size:0.72rem;padding:0.25rem 0.55rem;" data-pi-set-default="${esc(modelId)}">Usar como Padrão</button>` : ''}
+                          <button type="button" class="ghost sm" style="font-size:0.72rem;padding:0.25rem 0.55rem;" data-pi-test-model="${esc(modelId)}">Testar no Playground</button>
+                        </div>
+                      </div>`;
+                  }).join('')}
+                </div>
+              </section>
+
+              <section style="background:rgba(8,12,20,0.6);border:1px solid var(--apple-hairline);border-radius:12px;padding:0.9rem 1.1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                  <strong style="font-size:0.82rem;color:#f8fafc;">Integração Direta cURL / SDK (Orquestração do Gateway)</strong>
+                  <button type="button" class="ghost sm" id="pi-copy-curl">Copiar cURL</button>
+                </div>
+                <pre class="code" id="pi-curl-code" style="margin:0;font-size:0.74rem;">curl -X POST "${location.origin}/v1/chat" \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: $API_PLATFORM_KEY" \\
+  -d '{
+    "provider": "${esc(name)}",
+    "model": "${esc(currentDefaultModel)}",
+    ${currentAcc ? `"providerAccountId": "${esc(currentAcc.id)}",\n    ` : ''}"messages": [{"role": "user", "content": "Olá!"}]
+  }'</pre>
+              </section>
+            </div>
+
+            <footer class="inspector-footer">
+              <span class="muted" style="font-size:0.76rem;">Visualizador Apple HIG 0.75 · Conexão e quotas sincronizadas com o gateway Fênix</span>
+              <button type="button" id="pi-done" class="ghost sm" style="min-height:34px;padding:0.35rem 1rem;">Fechar Visualizador</button>
+            </footer>
+          </div>`;
+
+        const closeInspector = () => { inspectorDialog.close(); if (trigger?.isConnected) trigger.focus(); };
+        $('#pi-close').onclick = closeInspector;
+        $('#pi-done').onclick = closeInspector;
+        $('#pi-config-btn').onclick = () => {
+          inspectorDialog.close();
+          openProvider(name, trigger, currentAcc);
+        };
+        const copyCurlBtn = $('#pi-copy-curl');
+        if (copyCurlBtn) copyCurlBtn.onclick = () => copyToClipboard($('#pi-curl-code').textContent, copyCurlBtn);
+        const testBtn = $('#pi-test-btn');
+        if (testBtn && currentAcc) {
+          testBtn.onclick = async () => {
+            testBtn.disabled = true;
+            testBtn.textContent = 'Testando...';
+            try {
+              const res = await api(accountPath(currentAcc.id) + '/test', { method: 'POST' });
+              applyAccountHealth(currentAcc.id, { ...res.health, checkedAt: res.health.checkedAt || new Date().toISOString() });
+              testResults.set(currentAcc.id, { kind: res.health.ok ? 'ok' : 'error', message: res.health.ok ? 'Conexão e modelos verificados' : res.health.message || 'Conta indisponível' });
+              renderCards();
+              toast(res.health.ok ? `Conexão verificada com sucesso (${res.health.latencyMs}ms)` : 'Falha na conexão', res.health.ok ? 'success' : 'error');
+              openProviderInspector(name, trigger, currentAcc);
+            } catch (err) {
+              toast(err.message || 'Erro no teste', 'error');
+              testBtn.disabled = false;
+              testBtn.textContent = 'Testar Conexão';
+            }
+          };
+        }
+        const pullTokensBtn = $('#pi-pull-btn');
+        if (pullTokensBtn) {
+          pullTokensBtn.onclick = async () => {
+            pullTokensBtn.disabled = true;
+            pullTokensBtn.textContent = 'Puxando tokens...';
+            try {
+              const response = await api('/admin/provider-accounts/pull-tokens', {
+                method: 'POST',
+                body: {
+                  accountId: currentAcc?.id,
+                  providerName: name,
+                  displayName: currentAcc?.displayName || `${providerTitle(name)} (${(bridgeProfile.defaultTier || 'pro').toUpperCase()})`,
+                  accountTier: bridgeProfile.defaultTier || 'pro',
+                  defaultModel: bridgeProfile.defaultModel || undefined,
+                },
+              });
+              if (response.account?.id) {
+                accountRefreshGeneration++;
+                const synced = response.account;
+                const index = accounts.findIndex(item => item.id === synced.id);
+                if (index < 0) accounts.push(synced); else accounts[index] = synced;
+                if (response.health) applyAccountHealth(synced.id, response.health);
+                renderCards();
+                loadUsage(synced);
+                toast(`Tokens ${providerTitle(name)} (${(bridgeProfile.defaultTier || 'pro').toUpperCase()}) puxados e ativos!`, 'success');
+                openProviderInspector(name, trigger, synced);
+              }
+            } catch (err) {
+              toast(err.message || 'Falha ao puxar tokens', 'error');
+              pullTokensBtn.disabled = false;
+              pullTokensBtn.textContent = '⚡ Puxar Tokens Pro/Plus';
+            }
+          };
+        }
+        inspectorDialog.querySelectorAll('[data-pi-switch]').forEach(btn => {
+          btn.onclick = () => {
+            const acc = accounts.find(a => a.id === btn.dataset.piSwitch);
+            if (acc) openProviderInspector(name, trigger, acc);
+          };
+        });
+        inspectorDialog.querySelectorAll('[data-pi-upgrade]').forEach(btn => {
+          btn.onclick = async () => {
+            const newTier = btn.dataset.piUpgrade;
+            btn.disabled = true;
+            try {
+              const response = await api('/admin/provider-accounts/pull-tokens', {
+                method: 'POST',
+                body: {
+                  accountId: currentAcc?.id,
+                  providerName: name,
+                  displayName: currentAcc?.displayName || `${providerTitle(name)} (${newTier.toUpperCase()})`,
+                  accountTier: newTier,
+                  defaultModel: currentAcc?.defaultModel || bridgeProfile.defaultModel || undefined,
+                },
+              });
+              if (response.account?.id) {
+                accountRefreshGeneration++;
+                const synced = response.account;
+                const index = accounts.findIndex(item => item.id === synced.id);
+                if (index < 0) accounts.push(synced); else accounts[index] = synced;
+                renderCards();
+                loadUsage(synced);
+                toast(`Plano atualizado para ${newTier.toUpperCase()}!`, 'success');
+                openProviderInspector(name, trigger, synced);
+              }
+            } catch (err) {
+              toast(err.message || 'Erro ao alternar plano', 'error');
+              btn.disabled = false;
+            }
+          };
+        });
+        inspectorDialog.querySelectorAll('[data-pi-set-default]').forEach(btn => {
+          btn.onclick = async () => {
+            const modelId = btn.dataset.piSetDefault;
+            if (!currentAcc) {
+              toast('Conecte uma conta primeiro para definir o modelo padrão.', 'info');
+              return;
+            }
+            btn.disabled = true;
+            btn.textContent = 'Ativando...';
+            try {
+              const res = await api(accountPath(currentAcc.id), {
+                method: 'PATCH',
+                body: {
+                  providerName: name,
+                  displayName: currentAcc.displayName || providerTitle(name),
+                  authMode: currentAcc.authMode,
+                  enabled: currentAcc.enabled,
+                  baseUrl: currentAcc.baseUrl || '',
+                  settings: { defaultModel: modelId, accountTier: currentAcc.accountTier || 'free' },
+                },
+              });
+              if (res.account) {
+                const idx = accounts.findIndex(a => a.id === currentAcc.id);
+                if (idx >= 0) accounts[idx] = { ...res.account, health: currentAcc.health };
+                renderCards();
+              }
+              toast(`Modelo padrão de ${providerTitle(name)} definido para ${modelId}`, 'success');
+              openProviderInspector(name, trigger, accounts.find(a => a.id === currentAcc.id));
+            } catch (err) {
+              toast(err.message || 'Erro ao definir modelo padrão', 'error');
+              btn.disabled = false;
+              btn.textContent = 'Usar como Padrão';
+            }
+          };
+        });
+        inspectorDialog.querySelectorAll('[data-pi-test-model]').forEach(btn => {
+          btn.onclick = () => {
+            const modelId = btn.dataset.piTestModel;
+            sessionStorage.setItem('playground_preset', JSON.stringify({ provider: name, model: modelId }));
+            inspectorDialog.close();
+            location.hash = '#/playground';
+          };
+        });
+        const gotoPlayground = $('#pi-goto-playground');
+        if (gotoPlayground) {
+          gotoPlayground.onclick = () => {
+            sessionStorage.setItem('playground_preset', JSON.stringify({ provider: name, model: currentDefaultModel }));
+            inspectorDialog.close();
+          };
+        }
+        inspectorDialog.showModal();
+        $('#pi-done')?.focus();
+      };
+
       $('#p-add').onclick = event => openProvider(choices[0], event.currentTarget);
       content().querySelector('.providers-page').addEventListener('click', async event => {
+        const filterConnBtn = event.target.closest('[data-filter-connected]');
+        if (filterConnBtn) {
+          connectedFilter = filterConnBtn.dataset.filterConnected;
+          content().querySelectorAll('[data-filter-connected]').forEach(b => b.classList.toggle('active', b === filterConnBtn));
+          renderCards();
+          return;
+        }
+        const filterCatBtn = event.target.closest('[data-filter-catalog]');
+        if (filterCatBtn) {
+          catalogFilter = filterCatBtn.dataset.filterCatalog;
+          content().querySelectorAll('[data-filter-catalog]').forEach(b => b.classList.toggle('active', b === filterCatBtn));
+          renderCards();
+          return;
+        }
+        const inspectAcc = event.target.closest('[data-inspect-account]');
+        if (inspectAcc && !inspectAcc.disabled) {
+          const acc = accounts.find(a => a.id === inspectAcc.dataset.inspectAccount);
+          if (acc) openProviderInspector(acc.providerName, inspectAcc, acc);
+          return;
+        }
+        const inspectProv = event.target.closest('[data-inspect-provider]');
+        if (inspectProv) {
+          openProviderInspector(inspectProv.dataset.inspectProvider, inspectProv);
+          return;
+        }
+        const inspectHeading = event.target.closest('[data-inspect-heading]');
+        if (inspectHeading) {
+          const parts = inspectHeading.dataset.inspectHeading.split(':');
+          if (parts[0] === 'account') {
+            const acc = accounts.find(a => a.id === parts[1]);
+            if (acc) openProviderInspector(acc.providerName, inspectHeading, acc);
+          } else {
+            openProviderInspector(parts[1], inspectHeading);
+          }
+          return;
+        }
         const connect = event.target.closest('[data-connect-provider]');
         if (connect) { openProvider(connect.dataset.connectProvider, connect); return; }
         const openOllamaBtn = event.target.closest('[data-open-ollama-models]');
         if (openOllamaBtn && !openOllamaBtn.disabled) {
-          const ollamaDialog = $('#ollama-models-dialog');
-          const ollamaLive = providers.find(p => p.name === 'ollama');
           const ollamaAccount = accounts.find(a => a.providerName === 'ollama');
-          const rawModels = ollamaLive?.models?.length ? ollamaLive.models : (defaultPortals.ollama?.models || []).map(id => ({ id, name: id }));
-          const currentDefault = ollamaAccount?.defaultModel || 'qwen2.5-coder:1.5b';
-          ollamaDialog.innerHTML = `<div class="provider-dialog-content">
-            <button type="button" id="ollama-models-close" class="ghost provider-dialog-close" aria-label="Fechar modelos do Ollama">×</button>
-            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">${logo('ollama')}<div><h2 id="ollama-models-title" style="margin:0;">Modelos Open Source no Ollama</h2><p class="muted" style="margin:0.15rem 0 0;">Modelos reais ativos no servidor (${esc(ollamaAccount?.baseUrl || 'http://host.docker.internal:11434')}) e seu papel na orquestração</p></div></div>
-            <div class="ollama-models-list" style="display:flex;flex-direction:column;gap:0.65rem;margin:1rem 0;max-height:58vh;overflow-y:auto;">
-              ${rawModels.map(m => {
-                const id = typeof m === 'string' ? m : (m.id || m.name);
-                const size = m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo';
-                const info = openSourceModelRoles[id] || { alias: 'Open Source Engine', role: 'Inferência Local 24/7', engine: id };
-                const isDefault = currentDefault === id;
-                return `<div class="card" style="padding:0.85rem 1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;border:1px solid ${isDefault ? 'rgba(16,185,129,0.55)' : 'var(--border)'};">
-                  <div style="min-width:200px;flex:1;">
-                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                      <strong style="font-size:0.95rem;">${esc(id)}</strong>
-                      <span class="tier-badge">${esc(info.alias)}</span>
-                      <span class="muted" style="font-size:0.75rem;">${esc(size)}</span>
-                      ${isDefault ? '<span class="badge ok">Modelo Padrão Ativo</span>' : ''}
-                    </div>
-                    <p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem;">${esc(info.role)} · Motor: ${esc(info.engine)}</p>
-                  </div>
-                  <div style="display:flex;gap:0.45rem;flex-wrap:wrap;">
-                    ${ollamaAccount && !isDefault ? `<button type="button" class="ghost sm" data-set-ollama-default="${esc(id)}">Usar como Padrão</button>` : ''}
-                    <a href="#/playground" class="ghost sm" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.35rem 0.65rem;border-radius:var(--radius-sm);border:1px solid var(--border);font-size:0.78rem;" data-goto-playground="${esc(id)}">Testar no Playground</a>
-                  </div>
-                </div>`;
-              }).join('')}
-            </div>
-            <div class="provider-dialog-actions" style="justify-content:space-between;">
-              <a href="#/models" id="ollama-goto-models" class="ghost" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.45rem 0.85rem;border-radius:var(--radius-sm);border:1px solid var(--border);">Ver página completa de Modelos</a>
-              <button type="button" id="ollama-models-done">Fechar</button>
-            </div>
-          </div>`;
-          const closeOllamaModal = () => { ollamaDialog.close(); openOllamaBtn.focus(); };
-          $('#ollama-models-close').onclick = closeOllamaModal;
-          $('#ollama-models-done').onclick = closeOllamaModal;
-          $('#ollama-goto-models').onclick = () => ollamaDialog.close();
-          ollamaDialog.querySelectorAll('[data-goto-playground]').forEach(link => {
-            link.onclick = () => ollamaDialog.close();
-          });
-          ollamaDialog.querySelectorAll('[data-set-ollama-default]').forEach(btn => {
-            btn.onclick = async () => {
-              const modelId = btn.dataset.setOllamaDefault;
-              btn.disabled = true;
-              btn.textContent = 'Ativando...';
-              try {
-                const res = await api(accountPath(ollamaAccount.id), {
-                  method: 'PATCH',
-                  body: {
-                    providerName: 'ollama',
-                    displayName: ollamaAccount.displayName || 'Ollama',
-                    authMode: 'local',
-                    enabled: ollamaAccount.enabled,
-                    baseUrl: ollamaAccount.baseUrl || '',
-                    settings: { defaultModel: modelId, accountTier: ollamaAccount.accountTier || 'dedicated' },
-                  },
-                });
-                if (res.account) {
-                  const idx = accounts.findIndex(a => a.id === ollamaAccount.id);
-                  if (idx >= 0) accounts[idx] = { ...res.account, health: ollamaAccount.health };
-                  renderCards();
-                }
-                toast('Modelo padrão do Ollama atualizado para ' + modelId, 'success');
-                ollamaDialog.close();
-              } catch (err) {
-                btn.disabled = false;
-                btn.textContent = 'Usar como Padrão';
-                toast(err.message || 'Erro ao atualizar modelo padrão', 'error');
-              }
-            };
-          });
-          ollamaDialog.showModal();
-          $('#ollama-models-done').focus();
+          openProviderInspector('ollama', openOllamaBtn, ollamaAccount);
           return;
         }
         const pullBtn = event.target.closest('[data-pull-provider]');
@@ -1672,25 +2029,42 @@
         content().innerHTML = `<h1>Playground de IA</h1><p class="error">Erro ao carregar: ${esc(err.message)}</p>`;
         return;
       }
-        const online = providers.filter((p) => (p.health?.ok || p.models?.length > 0) && p.capabilities.includes('chat'));
+      const online = providers.filter((p) => (p.health?.ok || p.models?.length > 0) && p.capabilities.includes('chat'));
+      let preset = null;
+      try {
+        const raw = sessionStorage.getItem('playground_preset');
+        if (raw) {
+          preset = JSON.parse(raw);
+          sessionStorage.removeItem('playground_preset');
+        }
+      } catch {}
+
       content().innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
           <div>
             <h1>Playground de IA</h1>
-            <p class="muted">Execute uma chamada real de inferência antes de conectar seus projetos.</p>
+            <p class="muted">Execute inferências reais pelo gateway com roteamento automático, fallbacks e medição precisa de latência.</p>
           </div>
-          <div class="badge ${online.length ? 'ok' : 'err'}">${online.length ? `${online.length} Providers Online` : 'Nenhum Provider Online'}</div>
+          <div class="badge ${online.length ? 'ok' : 'err'}">${online.length ? `${online.length} Providers Prontos` : 'Nenhum Provider Online'}</div>
         </div>
-        <div class="card section" style="margin-top:1.5rem;">
-          <h2>Executar Chamada Real</h2>
+        <div class="card section" style="margin-top:1.25rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.75rem;">
+            <h2 style="margin:0;">Executar Chamada Real</h2>
+            <div class="apple-segmented" role="group" aria-label="Prompts rápidos">
+              <button type="button" class="apple-seg-btn active" data-prompt-preset="saude">Saúde</button>
+              <button type="button" class="apple-seg-btn" data-prompt-preset="codigo">Código JEV</button>
+              <button type="button" class="apple-seg-btn" data-prompt-preset="cot">Raciocínio CoT</button>
+              <button type="button" class="apple-seg-btn" data-prompt-preset="json">JSON</button>
+            </div>
+          </div>
           <div class="form-grid">
             <label>Provider
               <select id="test-provider">
                 <option value="">Automático (fallback em cascata)</option>
-                ${providers.filter(p => p.capabilities.includes('chat')).map((p) => `<option value="${esc(p.name)}">${esc(p.name)} ${p.health.ok ? '✓ online' : '(offline)'}</option>`).join('')}
+                ${providers.filter(p => p.capabilities.includes('chat')).map((p) => `<option value="${esc(p.name)}" ${preset?.provider === p.name ? 'selected' : ''}>${esc(p.name)} ${p.health?.ok ? '✓ online' : (p.models?.length ? '✓ ativo' : '(offline)')}</option>`).join('')}
               </select>
             </label>
-            <label>Modelo opcional <input id="test-model" placeholder="padrão do provider" /></label>
+            <label>Modelo opcional <input id="test-model" placeholder="padrão do provider" value="${esc(preset?.model || '')}" /></label>
           </div>
           <label>Prompt <textarea id="test-prompt" rows="3">Responda apenas: sistema funcionando</textarea></label>
           <div class="toolbar" style="margin-top:1.25rem;">
@@ -1705,6 +2079,24 @@
             <pre id="test-output" class="code hidden"></pre>
           </div>
         </div>`;
+
+      const promptPresets = {
+        saude: 'Responda apenas: sistema funcionando',
+        codigo: 'Escreva uma função TypeScript idempotente para retry com exponential backoff e jitter.',
+        cot: 'Resolva passo a passo: Se temos 3 servidores distribuídos e um falha com 25% de probabilidade, qual a probabilidade de quorum maioritário (ao menos 2 online)?',
+        json: 'Retorne exclusivamente um JSON com as chaves: "status", "version", "capabilities" e "timestamp".',
+      };
+      content().querySelectorAll('[data-prompt-preset]').forEach(btn => {
+        btn.onclick = () => {
+          content().querySelectorAll('[data-prompt-preset]').forEach(b => b.classList.toggle('active', b === btn));
+          const p = promptPresets[btn.dataset.promptPreset];
+          if (p) {
+            $('#test-prompt').value = p;
+            $('#test-prompt').focus();
+          }
+        };
+      });
+
       $('#test-run').addEventListener('click', async () => {
         const button = $('#test-run'); const status = $('#test-status'); const output = $('#test-output'); const box = $('#test-output-box');
         button.disabled = true; button.classList.add('loading'); status.textContent = 'Executando inferência real...'; status.className = 'muted';
@@ -1909,17 +2301,76 @@
       try {
         const { logs } = await api('/admin/logs?limit=100');
         content().innerHTML = `
-          <h1>Logs de requisicoes</h1>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1rem;">
+            <div>
+              <h1 style="margin:0;">Logs de Requisições</h1>
+              <p class="muted" style="margin:0.2rem 0 0;">Histórico de inferências com rastreabilidade, tokens e latência medida.</p>
+            </div>
+            <div class="apple-segmented">
+              <span style="font-size:0.75rem;padding:0.2rem 0.6rem;color:#94a3b8;">${logs.length} registros</span>
+            </div>
+          </div>
           ${table(
-            ['Quando', 'Capacidade', 'Provider', 'Modelo', 'Cache', 'Status', 'Uso de tokens', 'Duracao', 'Custo estimado'],
+            ['Quando', 'Capacidade', 'Provider', 'Modelo', 'Cache', 'Status', 'Uso de tokens', 'Duração', 'Custo estimado', 'Ações'],
             logs.map((l) => [
               fmtDate(l.createdAt), esc(l.capability), esc(l.provider), esc(l.model),
               l.cached ? '<span class="ok">hit</span>' : '—',
               badge(l.success, 'ok', l.errorCode || 'erro'),
-              l.tokenUsageSource === 'observed' ? l.totalTokens + ' reportados' : l.tokenUsageSource === 'estimated' ? '~' + l.totalTokens + ' estimados' : l.cached ? 'Cache (sem chamada ao provider)' : 'Não informado',
+              l.tokenUsageSource === 'observed' ? l.totalTokens + ' reportados' : l.tokenUsageSource === 'estimated' ? '~' + l.totalTokens + ' estimados' : l.cached ? 'Cache (sem chamada)' : 'Não informado',
               fmtMs(l.durationMs), '$' + l.cost.toFixed(5),
+              `<button type="button" class="ghost sm" data-inspect-log="${esc(l.id)}">Ver Detalhes (75%)</button>`,
             ]),
           )}`;
+
+        const showModal = (html) => {
+          const overlay = document.getElementById('modal-overlay');
+          if (!overlay) return;
+          document.getElementById('modal-body').innerHTML = html;
+          overlay.classList.remove('hidden');
+          document.getElementById('modal-close').onclick = () => overlay.classList.add('hidden');
+          overlay.onkeydown = (event) => { if (event.key === 'Escape') { overlay.classList.add('hidden'); overlay.onkeydown = null; } };
+        };
+
+        content().querySelectorAll('[data-inspect-log]').forEach(btn => {
+          btn.onclick = () => {
+            const logId = btn.dataset.inspectLog;
+            const item = logs.find(l => l.id === logId);
+            if (!item) return;
+            showModal(`
+              <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
+                ${providerIdentity(item.provider)}
+                <div>
+                  <h2 style="margin:0;font-size:1.2rem;">Detalhes da Execução</h2>
+                  <p class="muted" style="margin:0.2rem 0 0;font-size:0.8rem;">ID: <code>${esc(item.id)}</code> · ${fmtDate(item.createdAt)}</p>
+                </div>
+              </div>
+              <div class="cards" style="margin-bottom:1.25rem;">
+                ${card('Status', item.success ? 'Sucesso (200)' : (item.errorCode || 'Erro'), item.success ? 'ok' : 'error')}
+                ${card('Duração', fmtMs(item.durationMs))}
+                ${card('Tokens Totais', item.totalTokens ? item.totalTokens.toLocaleString('pt-BR') : '0')}
+                ${card('Custo Estimado', '$' + Number(item.cost || 0).toFixed(5))}
+              </div>
+              <div class="card section">
+                <h3>Metadados &amp; Rastreamento</h3>
+                <p><strong>Provedor:</strong> ${esc(item.provider)} &nbsp;|&nbsp; <strong>Modelo:</strong> <code>${esc(item.model)}</code> &nbsp;|&nbsp; <strong>Capacidade:</strong> ${esc(item.capability)}</p>
+                <p><strong>Origem da medição:</strong> ${esc(item.tokenUsageSource === 'observed' ? 'Tokens reais reportados pela API do provedor' : item.tokenUsageSource === 'estimated' ? 'Tokens estimados por tokenizer local' : item.cached ? 'Resposta atendida diretamente via cache Redis' : 'Não informado')}</p>
+                <p><strong>Cache:</strong> ${item.cached ? 'Sim (Hit)' : 'Não (Miss / Direto)'} &nbsp;|&nbsp; <strong>Tenant:</strong> ${esc(item.tenantId || 'global')}</p>
+              </div>
+              <div class="card section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                  <h3 style="margin:0;">Reprodução cURL</h3>
+                  <button type="button" class="ghost sm" id="copy-log-curl">Copiar cURL</button>
+                </div>
+                <pre class="code" id="log-curl-text" style="font-size:0.75rem;">curl -X POST "${location.origin}/v1/${esc(item.capability || 'chat')}" \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: $API_PLATFORM_KEY" \\
+  -d '{"provider":"${esc(item.provider)}","model":"${esc(item.model)}"}'</pre>
+              </div>
+            `);
+            const copyBtn = document.getElementById('copy-log-curl');
+            if (copyBtn) copyBtn.onclick = () => copyToClipboard(document.getElementById('log-curl-text').textContent, copyBtn);
+          };
+        });
       } catch (err) { toast(err.message, 'error'); content().innerHTML = `<h1>Logs</h1><p class="error">Erro: ${esc(err.message)}</p>`; }
     },
 
