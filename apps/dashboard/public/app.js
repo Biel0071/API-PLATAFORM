@@ -1064,7 +1064,22 @@
             (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + (account.defaultModel ? ' · ' + esc(account.defaultModel) : '') + '</p>' : '') +
             (isActiveConnection ? '<div class="provider-card-model-tags" aria-label="Modelos ativos na conexão">' + visibleModels.map(model => { const osInfo = openSourceModelRoles[model]; return '<span class="model-tag" title="' + esc(osInfo ? `${model} — ${osInfo.alias} (${osInfo.role})` : model) + '">' + esc(model) + '</span>'; }).join('') + (extraModelsCount > 0 ? '<span class="model-tag">+' + extraModelsCount + '</span>' : '') + '</div>' : '') +
             (account ? '<div class="provider-usage-panel" data-account-usage="' + esc(account.id) + '" aria-label="Uso estimado da conta">' + renderUsage(account) + '</div>' : '') +
-            '<div class="provider-card-actions">' + (account ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button type="button" class="ghost provider-inspect-btn"' + disabled + ' data-inspect-account="' + esc(account.id) + '">Dados &amp; Modelos</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>' : '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>' + (details[name]?.kind === 'cloud' ? '<button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>' : '') + '<button type="button" class="ghost provider-inspect-btn" data-inspect-provider="' + esc(name) + '">' + (name === 'ollama' ? 'Modelos (' + displayModels.length + ')' : 'Dados &amp; Modelos') + '</button>') + '</div>' +
+            (() => {
+            const directAccountConfigs = {
+              gemini: { label: '🌐 Entrar com Google', cls: 'apple-google-btn', title: 'Entrar com Conta Google e usar tokens Gemini Pro / Flash' },
+              huggingface: { label: '🤗 Entrar com Hugging Face', cls: 'apple-hf-btn', title: 'Entrar com Conta Hugging Face via Device Code oficial' },
+              openai: { label: '⚡ Conectar Conta OpenAI', cls: 'apple-openai-btn', title: 'Conectar Conta OpenAI / ChatGPT para usar tokens Plus / Pro' },
+              anthropic: { label: '⚡ Conectar Conta Claude', cls: 'apple-anthropic-btn', title: 'Conectar Conta Claude para usar tokens Anthropic Pro / Team' },
+            };
+            const directAcc = !account && directAccountConfigs[name];
+            const directBtn = directAcc
+              ? '<button type="button" class="provider-account-action-btn ' + directAcc.cls + '" data-direct-account="' + esc(name) + '" title="' + esc(directAcc.title) + '">' + directAcc.label + '</button>'
+              : '';
+            return '<div class="provider-card-actions">' + (account
+              ? '<button class="ghost"' + disabled + ' data-edit-account="' + esc(account.id) + '">Editar conta</button><button class="ghost"' + disabled + ' data-test-account="' + esc(account.id) + '">Testar conexão</button><button type="button" class="ghost provider-inspect-btn"' + disabled + ' data-inspect-account="' + esc(account.id) + '">Dados &amp; Modelos</button><button class="ghost"' + disabled + ' data-disconnect-account="' + esc(account.id) + '">Desconectar conta</button>'
+              : directBtn + '<button data-connect-provider="' + esc(name) + '">Conectar conta<span class="sr-only"> ' + esc(providerTitle(name)) + '</span></button>' + (details[name]?.kind === 'cloud' ? '<button type="button" class="ghost provider-pull-card-btn" data-pull-provider="' + esc(name) + '" title="Puxar tokens de programação Pro / Plus de acordo com o sistema e conectar">⚡ Tokens Pro / Plus</button>' : '') + '<button type="button" class="ghost provider-inspect-btn" data-inspect-provider="' + esc(name) + '">' + (name === 'ollama' ? 'Modelos (' + displayModels.length + ')' : 'Dados &amp; Modelos') + '</button>'
+            ) + '</div>';
+          })() +
             (account ? '<p class="provider-test-result ' + esc(result?.kind || '') + '" data-account-result="' + esc(account.id) + '" role="status">' + esc(result?.message || '') + '</p>' : '') + '</article>';
         };
         const visibleAccounts = connectedFilter === 'active' ? accounts.filter(isAccountActivelyConnected) : accounts;
@@ -1108,7 +1123,7 @@
         $('#p-save').disabled = false;
         $('#p-save').textContent = mode === 'oauth' ? 'Salvar ajustes' : 'Salvar conexão';
       };
-      const fillProvider = (name) => {
+      const fillProvider = (name, options = {}) => {
         stopOAuthPolling();
         $('#p-hf-start').disabled = false;
         $('#p-hf-flow').hidden = true;
@@ -1118,11 +1133,19 @@
         const cloud = details[name].kind === 'cloud';
         const connection = connectionOptions[name] || {};
         const oauthEnabled = Boolean(connection.oauth?.enabled);
-        const authMode = cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : 'apiKey')) : 'local';
+        const initialAuthMode = options.authMode || (cloud ? (cfg?.settings?.authMode || (cfg?.hasOAuth && !cfg?.hasApiKey ? 'oauth' : 'apiKey')) : 'local');
+        const authMode = (initialAuthMode === 'oauth' && !oauthEnabled && !['gemini', 'huggingface'].includes(name)) ? 'apiKey' : initialAuthMode;
         const hasApiKey = Boolean(cfg?.hasApiKey);
         $('#p-name').value = name;
         $('#p-name').disabled = Boolean(selectedAccount);
-        $('#p-display-name').value = selectedAccount?.displayName || providerTitle(name);
+        let defaultDisplayName = selectedAccount?.displayName || providerTitle(name);
+        if (options.directAccount && !selectedAccount) {
+          if (name === 'gemini') defaultDisplayName = 'Google Gemini (PRO)';
+          else if (name === 'openai') defaultDisplayName = 'OpenAI ChatGPT (PRO)';
+          else if (name === 'anthropic') defaultDisplayName = 'Anthropic Claude (PRO)';
+          else if (name === 'huggingface') defaultDisplayName = 'Hugging Face (Inference)';
+        }
+        $('#p-display-name').value = defaultDisplayName;
         $('#p-auth-mode').value = authMode;
         $('#p-url').value = cfg?.baseUrl || (cloud ? '' : defaultPortals[name]?.portalUrl || '');
         $('#p-key').value = '';
@@ -1138,8 +1161,29 @@
           ${oauthEnabled ? `<label class="provider-auth-choice"><input type="radio" name="provider-auth-mode" value="oauth" ${authMode === 'oauth' ? 'checked' : ''} /><span><strong>${name === 'gemini' ? 'Entrar com Google' : 'Entrar com Hugging Face'}</strong><small>Conecte sua conta diretamente pelo navegador.</small></span></label>` : name === 'gemini' ? `<div class="provider-auth-choice disabled"><input type="radio" disabled aria-label="OAuth indisponível" /><span><strong>Entrar com Google</strong><small>${esc(connection.oauth?.reason || 'OAuth ficará disponível após configurar o callback HTTPS e o cliente Google no servidor.')}${portalUrl ? `<br/><a href="${esc(portalUrl)}" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn" style="margin-top:0.35rem;">${svgExternal} Abrir Google AI Studio no navegador</a>` : ''}</small></span></div>` : ''}
           ${cfg?.oauthNeedsReauth ? '<p class="provider-auth-warning" role="status">A autorização expirou ou foi revogada. Entre novamente para reativar esta conta.</p>' : ''}` : '';
 
+        if ($('#p-account-platform-helper')) {
+          if (cloud && name === 'openai') {
+            $('#p-account-platform-helper').hidden = false;
+            $('#p-account-platform-helper').innerHTML = '<div class="apple-account-helper-title">⚡ Conexão de Conta OpenAI / ChatGPT (Plus · Pro · Codex)</div><p class="muted">Conecte sua conta OpenAI ou assinatura ChatGPT Plus ($20/mês) / Pro ($200/mês) para gastar tokens de programação na API com cotas de 5h e semanal.</p><div class="apple-account-helper-actions"><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn">' + svgExternal + ' Abrir OpenAI Platform no navegador para obter chave</a></div>';
+          } else if (cloud && name === 'anthropic') {
+            $('#p-account-platform-helper').hidden = false;
+            $('#p-account-platform-helper').innerHTML = '<div class="apple-account-helper-title">⚡ Conexão de Conta Claude (Anthropic Pro · Team)</div><p class="muted">Conecte sua conta Claude para utilizar os modelos Claude 3.7 Sonnet e Opus com limites de tokens sincronizados.</p><div class="apple-account-helper-actions"><a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn">' + svgExternal + ' Abrir Anthropic Console no navegador</a></div>';
+          } else if (cloud && name === 'gemini') {
+            $('#p-account-platform-helper').hidden = false;
+            $('#p-account-platform-helper').innerHTML = '<div class="apple-account-helper-title">🌐 Conexão de Conta Google Gemini (Pro &amp; Flash)</div><p class="muted">Conecte sua conta Google para utilizar os modelos Gemini 2.5 Pro e Flash com cotas da sua conta (10M tokens/5h · 60M semanal).</p><div class="apple-account-helper-actions"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn">' + svgExternal + ' Abrir Google AI Studio na sua Conta Google (1-clique)</a></div>';
+          } else if (cloud && name === 'huggingface') {
+            $('#p-account-platform-helper').hidden = false;
+            $('#p-account-platform-helper').innerHTML = '<div class="apple-account-helper-title">🤗 Conexão de Conta Hugging Face</div><p class="muted">Autorize via Device Code oficial diretamente pelo navegador para inferência de modelos open source.</p><div class="apple-account-helper-actions"><a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" class="provider-open-browser-btn">' + svgExternal + ' Abrir Tokens Hugging Face no navegador</a></div>';
+          } else {
+            $('#p-account-platform-helper').hidden = true;
+            $('#p-account-platform-helper').innerHTML = '';
+          }
+        }
+
         delete dialog.dataset.tierExplicitlyChosen;
-        $('#p-tier').value = cfg?.settings?.accountTier || 'free';
+        const defaultTier = options.directAccount ? (name === 'huggingface' ? 'plus' : 'pro') : (cfg?.settings?.accountTier || 'free');
+        $('#p-tier').value = defaultTier;
+        if (options.directAccount) dialog.dataset.tierExplicitlyChosen = 'true';
         const bridgeProfile = programmingBridgeProfiles[name] || { label: providerTitle(name) + ' · Tokens de Programação', defaultTier: 'pro', defaultModel: defaultPortals[name]?.models?.[0] || '', quotaLabel: 'Plus · Pro · Ultra' };
         if ($('#p-bridge-desc')) {
           $('#p-bridge-desc').textContent = bridgeProfile.label + ' (' + bridgeProfile.quotaLabel + ')';
@@ -1163,7 +1207,11 @@
         $('#p-account-field').hidden = name !== 'cloudflare';
         $('#p-account').required = name === 'cloudflare' && authMode === 'apiKey' && !selectedAccount;
         $('#p-account').value = cfg?.settings?.accountId || '';
-        $('#p-model').value = cfg?.settings?.defaultModel || '';
+        let initialModel = cfg?.settings?.defaultModel || '';
+        if (!initialModel && options.directAccount && bridgeProfile.defaultModel) {
+          initialModel = bridgeProfile.defaultModel;
+        }
+        $('#p-model').value = initialModel;
         $('#p-embed').value = configByName[name]?.settings?.embedModel || '';
         $('#p-default-chat').checked = defaults?.chat === name;
         initialProviderSettings = { defaultChat: $('#p-default-chat').checked, embedModel: $('#p-embed').value };
@@ -1195,7 +1243,7 @@
         if (inspectorDialog?.open) inspectorDialog.close();
         inspectorDialog?.remove();
       }, { once: true });
-      const openProvider = (name, trigger, account = null) => {
+      const openProvider = (name, trigger, account = null, options = {}) => {
         selectedAccount = account;
         returnFocus = trigger;
         dialog.innerHTML = `<div class="provider-dialog-content">
@@ -1206,6 +1254,7 @@
             <label class="provider-field-wide" for="p-display-name">Nome da conta<input id="p-display-name" required maxlength="120" /></label>
             <input type="hidden" id="p-auth-mode" value="apiKey" />
             <fieldset class="provider-field-wide provider-auth-method-field" id="p-auth-method-field"><legend>Forma de conexão</legend><div id="p-auth-methods"></div></fieldset>
+            <div id="p-account-platform-helper" class="apple-account-helper" hidden></div>
             <label class="provider-field-wide" for="p-tier">Plano / Tier de Conta
               <select id="p-tier">
                 <option value="go">Go (500k / 5h · 3.5M Semanal)</option>
@@ -1245,7 +1294,7 @@
           <section id="p-google-oauth-actions" class="provider-oauth-actions" hidden><p>Continue para o Google autorizar o acesso à API Gemini.</p><button id="p-google-start" type="button">Entrar com Google</button></section>
           <div class="apple-auto-ident-banner"><span style="color:#f59e0b;font-size:0.95rem;">✨</span><div><strong>Auto-identificação inteligente:</strong> Ao conectar uma conta real, o sistema detecta os modelos disponíveis, valida o plano (Free, Plus, Pro, Ultra) e configura os tokens a se gastar (5h e semanal) automaticamente.</div></div><p id="p-result" role="status" aria-live="polite"></p><div class="provider-dialog-actions"><button id="p-save" type="submit">Salvar conexão</button><button id="p-cancel" type="button" class="ghost">Cancelar</button></div></form>
         </div>`;
-        fillProvider(name);
+        fillProvider(name, options);
         $('#p-dialog-title').textContent = selectedAccount ? 'Editar conta' : 'Conectar conta';
         $('#p-name').onchange = event => fillProvider(event.target.value);
         $('#p-tier').onchange = () => {
@@ -1509,7 +1558,15 @@
           }
         };
         dialog.showModal();
-        (selectedAccount ? $('#p-display-name') : $('#p-name')).focus();
+        if (options?.autoStartOAuth) {
+          if (name === 'huggingface' && connectionOptions[name]?.oauth?.enabled) {
+            setTimeout(() => { $('#p-hf-start')?.click(); }, 60);
+          } else if (name === 'gemini' && connectionOptions[name]?.oauth?.enabled) {
+            setTimeout(() => { $('#p-google-start')?.click(); }, 60);
+          }
+        } else {
+          (selectedAccount ? $('#p-display-name') : (options?.directAccount ? $('#p-key') : $('#p-name'))).focus();
+        }
       };
 
       const openProviderInspector = (name, trigger, account = null) => {
@@ -1882,6 +1939,18 @@
           } else {
             openProviderInspector(parts[1], inspectHeading);
           }
+          return;
+        }
+        const directAccBtn = event.target.closest('[data-direct-account]');
+        if (directAccBtn && !directAccBtn.disabled) {
+          const provName = directAccBtn.dataset.directAccount;
+          const isOauthProvider = ['gemini', 'huggingface'].includes(provName);
+          const oauthActive = Boolean(connectionOptions[provName]?.oauth?.enabled);
+          openProvider(provName, directAccBtn, null, {
+            directAccount: true,
+            authMode: isOauthProvider && oauthActive ? 'oauth' : 'apiKey',
+            autoStartOAuth: isOauthProvider && oauthActive,
+          });
           return;
         }
         const connect = event.target.closest('[data-connect-provider]');

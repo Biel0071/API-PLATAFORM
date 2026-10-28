@@ -2590,6 +2590,103 @@ pre, code { overflow-wrap: anywhere; }
   color: #ffffff !important;
 }
 
+.provider-account-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0.28rem 0.58rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.16s ease-in-out;
+}
+
+.provider-account-action-btn.apple-google-btn {
+  background: rgba(66, 133, 244, 0.16) !important;
+  border: 1px solid rgba(66, 133, 244, 0.42) !important;
+  color: #93c5fd !important;
+}
+
+.provider-account-action-btn.apple-google-btn:hover {
+  background: rgba(66, 133, 244, 0.28) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(66, 133, 244, 0.3);
+}
+
+.provider-account-action-btn.apple-hf-btn {
+  background: rgba(255, 210, 30, 0.14) !important;
+  border: 1px solid rgba(255, 210, 30, 0.45) !important;
+  color: #fde047 !important;
+}
+
+.provider-account-action-btn.apple-hf-btn:hover {
+  background: rgba(255, 210, 30, 0.25) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(255, 210, 30, 0.3);
+}
+
+.provider-account-action-btn.apple-openai-btn {
+  background: rgba(16, 163, 127, 0.16) !important;
+  border: 1px solid rgba(16, 163, 127, 0.42) !important;
+  color: #6ee7b7 !important;
+}
+
+.provider-account-action-btn.apple-openai-btn:hover {
+  background: rgba(16, 163, 127, 0.28) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(16, 163, 127, 0.3);
+}
+
+.provider-account-action-btn.apple-anthropic-btn {
+  background: rgba(217, 119, 87, 0.16) !important;
+  border: 1px solid rgba(217, 119, 87, 0.42) !important;
+  color: #fdba74 !important;
+}
+
+.provider-account-action-btn.apple-anthropic-btn:hover {
+  background: rgba(217, 119, 87, 0.28) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(217, 119, 87, 0.3);
+}
+
+.apple-account-helper {
+  grid-column: 1 / -1;
+  background: rgba(18, 25, 38, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  margin: 0.25rem 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.apple-account-helper-title {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.apple-account-helper p {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin: 0;
+  color: #94a3b8;
+}
+
+.apple-account-helper-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
 /* Apple Segmented Control */
 .apple-segmented {
   display: inline-flex;

@@ -818,3 +818,68 @@ test('pulls Pro/Plus programming tokens from catalog and dialog and connects onl
   await expect(anthropicCard.locator('.provider-status')).toContainText('Online');
   await expect(anthropicCard.locator('.tier-badge')).toContainText('PLUS');
 });
+
+test('connects official platform accounts via direct branded account buttons', async ({
+  page,
+}) => {
+  // 1. Direct OpenAI account button opens pre-configured dialog with Pro tier and helper
+  await expect(page.locator('[data-direct-account="openai"]')).toBeVisible();
+  await page.locator('[data-direct-account="openai"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('#p-display-name')).toHaveValue('OpenAI ChatGPT (PRO)');
+  await expect(page.locator('#p-tier')).toHaveValue('pro');
+  await expect(page.locator('#p-account-platform-helper')).toBeVisible();
+  await page.locator('#p-cancel').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+
+  // 2. Direct Anthropic Claude button opens pre-configured dialog
+  await expect(page.locator('[data-direct-account="anthropic"]')).toBeVisible();
+  await page.locator('[data-direct-account="anthropic"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('#p-display-name')).toHaveValue('Anthropic Claude (PRO)');
+  await expect(page.locator('#p-tier')).toHaveValue('pro');
+  await page.locator('#p-cancel').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+
+  // 3. Direct Hugging Face account button starts device flow automatically
+  await page.route('**/admin/provider-accounts', async (route) => {
+    if (route.request().method() === 'POST') {
+      const data = route.request().postDataJSON();
+      const id = 'hf-direct-' + accounts.length;
+      const created = {
+        id,
+        providerName: data.providerName,
+        displayName: data.displayName,
+        authMode: data.authMode,
+        enabled: true,
+        hasCredential: false,
+        oauthNeedsReauth: false,
+        baseUrl: null,
+        defaultModel: 'meta-llama/Llama-3.2-3B-Instruct',
+        accountTier: 'plus',
+        health: { ok: null, checkedAt: null, latencyMs: null },
+      };
+      accounts.push(created);
+      return route.fulfill({ status: 201, json: { success: true, account: created } });
+    }
+    return route.continue();
+  });
+  await page.route('**/admin/provider-accounts/*/oauth/huggingface/start', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        success: true,
+        flowId: 'hf-flow-direct',
+        userCode: 'DIRECT-CODE',
+        verificationUri: 'https://huggingface.co/oauth/authorize/device',
+        expiresInSeconds: 600,
+        intervalSeconds: 5,
+      },
+    }),
+  );
+  await expect(page.locator('[data-direct-account="huggingface"]')).toBeVisible();
+  await page.locator('[data-direct-account="huggingface"]').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('#p-hf-code')).toHaveText('DIRECT-CODE');
+  await page.locator('#p-cancel').click();
+});
