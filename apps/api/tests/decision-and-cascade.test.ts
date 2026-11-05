@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import {
-  LayaProvider,
   JevProvider,
   ModelCapabilityRegistry,
   CAPABILITY_REGISTRY,
@@ -61,60 +60,8 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       expect(ModelCapabilityRegistry.resolveModelAlias('claude-open')).toBe('qwen2.5-coder:1.5b');
       expect(ModelCapabilityRegistry.resolveModelAlias('jev-coder')).toBe('qwen2.5-coder:1.5b');
       expect(ModelCapabilityRegistry.resolveModelAlias('chatgpt-open')).toBe('llama3.2:1b');
-      expect(ModelCapabilityRegistry.resolveModelAlias('r1-open')).toBe('deepseek-r1:1.5b');
+      expect(ModelCapabilityRegistry.resolveModelAlias('r1-open')).toBe('qwen3.5:0.8b');
       expect(ModelCapabilityRegistry.resolveModelAlias('vision-open')).toBe('qwen3.5:0.8b');
-    });
-  });
-
-  describe('LayaProvider (System 1 Local Semantic Engine)', () => {
-    const laya = new LayaProvider();
-
-    it('decides coding tasks with deepseek-coder in <35ms', async () => {
-      const start = performance.now();
-      const res = await laya.decision({
-        prompt: 'Escreva uma função TypeScript que valida um token JWT e extrai o tenantId.',
-      });
-      const elapsed = performance.now() - start;
-
-      expect(res.result.decision).toBe('coding');
-      expect(res.result.selectedModel).toBe('deepseek-coder:6.7b');
-      expect(res.result.selectedProvider).toBe('ollama');
-      expect(res.result.needsBackground).toBe(false);
-      expect(res.result.confidence).toBeGreaterThanOrEqual(0.9);
-      expect(elapsed).toBeLessThan(35);
-    });
-
-    it('decides complex architecture with workflow and background execution in <35ms', async () => {
-      const start = performance.now();
-      const res = await laya.decision({
-        prompt: 'Analise o meu projeto completo, decomponha a arquitetura em microserviços e gere um roadmap multi-agent.',
-      });
-      const elapsed = performance.now() - start;
-
-      expect(res.result.decision).toBe('workflow');
-      expect(res.result.selectedModel).toBe('claude-3-5-sonnet-latest');
-      expect(res.result.selectedProvider).toBe('anthropic');
-      expect(res.result.needsBackground).toBe(true);
-      expect(elapsed).toBeLessThan(35);
-    });
-
-    it('decides greetings / fast conversational queries instantly', async () => {
-      const res = await laya.decision({
-        prompt: 'Olá, bom dia!',
-      });
-
-      expect(res.result.decision).toBe('fast');
-      expect(res.result.selectedModel).toBe('qwen2.5:1.5b');
-      expect(res.result.fastResponse).toBeDefined();
-    });
-
-    it('provides chat response using System 1 fast lane', async () => {
-      const chatRes = await laya.chat({
-        messages: [{ role: 'user', content: 'Oi' }],
-      });
-      const content = (chatRes as any).result?.message?.content;
-      expect(content).toBeDefined();
-      expect(content.length).toBeGreaterThan(0);
     });
   });
 
@@ -175,8 +122,12 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       const json = res.json();
       expect(json.success).toBe(true);
       expect(json.result.decision).toBe('coding');
-      expect(json.result.selectedModel).toBe('deepseek-coder:6.7b');
-      expect(json.executionTime).toBeLessThan(100);
+      expect(json.result.selectedModel).toBe('qwen2.5-coder:1.5b');
+      expect(json.model).toBe('fast-intent-heuristic');
+      expect(json.provider).toBe('fast-intent');
+      expect(json.result.metadata).toMatchObject({ engine: 'fast-intent-heuristic', source: 'fallback' });
+      expect(json.tokens).toBeUndefined();
+      expect(json.executionTime).toBeGreaterThanOrEqual(0);
     });
 
     it('returns 200 with workflow decision for multi-agent architecture prompts', async () => {
@@ -223,7 +174,7 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       expect(json._gateway?.system1Decision?.decision).toBe('coding');
     }, 60000);
 
-    it('executes dual-lane cascade and returns consolidated response with System 1 and code', async () => {
+    it('executes the dual-lane cascade and returns the model-generated response', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/chat/completions',
@@ -245,8 +196,8 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       expect(json.choices).toBeDefined();
       const content = json.choices[0]?.message?.content;
       expect(content).toBeDefined();
-      expect(content).toContain('/*');
-      expect(json._gateway?.system1Decision?.consolidated).toBe(true);
+      expect(content).not.toContain('/*');
+      expect(json._gateway?.system1Decision?.fastResponse).toBeUndefined();
     }, 60000);
 
     it('accepts model: "laya" or model: "decision" in /v1/chat/completions', async () => {
@@ -269,7 +220,8 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       const json = res.json();
       expect(json.choices).toBeDefined();
       expect(json.choices[0]?.message?.content).toBeDefined();
-      expect(json.model).toBe('laya-system1');
+      expect(json.model).toBe('gemma3:1b');
+      expect(json.choices[0]?.message?.content).not.toContain('Classificação');
     });
   });
 

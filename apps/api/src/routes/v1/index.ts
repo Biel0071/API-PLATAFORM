@@ -692,7 +692,7 @@ export async function v1Routes(app: FastifyInstance): Promise<void> {
       const response = await fetch(`${engine}/health`, { signal: AbortSignal.timeout(3_000) });
       if (!response.ok) return { success: true, available: false, status: 'unavailable' };
       const health = await response.json() as Record<string, unknown>;
-      return { success: true, available: health.status === 'ready', status: health.status, sttLoaded: health.sttLoaded, ttsFilesPresent: health.ttsFilesPresent, stt: health.stt, tts: health.tts, voices: health.voices, profiles: health.profiles };
+        return { success: true, available: health.status === 'ready', status: health.status, sttLoaded: health.sttLoaded, ttsFilesPresent: health.ttsFilesPresent, stt: health.stt, tts: health.tts, cloning: health.cloning, voices: health.voices, profiles: health.profiles };
     } catch { return { success: true, available: false, status: 'unavailable' }; }
   });
 

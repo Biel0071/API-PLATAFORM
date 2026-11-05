@@ -1,197 +1,147 @@
 import {
   Capability,
-  ChatInput,
-  ChatMessage,
   DecisionInput,
   DecisionResult,
+  HealthStatus,
   ModelInfo,
-  ProviderResponse,
+  ProviderError,
   ProviderResult,
 } from '../types';
 import { BaseProvider } from './base.provider';
 
 export interface LayaConfig {
-  onnxModelPath?: string;
-  fastResponseThresholdMs?: number;
+  baseUrl?: string;
+  timeoutMs?: number;
 }
+
+type LayaDecision = DecisionResult['decision'];
+
+const routeModels: Record<LayaDecision, string> = {
+  fast: 'gemma3:1b',
+  coding: 'qwen2.5-coder:1.5b',
+  reasoning: 'qwen3.5:0.8b',
+  workflow: 'qwen3.5:0.8b',
+  standard: 'llama3.2:1b',
+};
+
+const routeCriteria = {
+  fast: 'Saudação ou pedido curto e direto que precisa de resposta simples.',
+  coding: 'Programação, depuração, código ou tarefa de engenharia de software.',
+  reasoning: 'Pergunta que exige análise ou raciocínio em várias etapas.',
+  workflow: 'Projeto complexo, planejamento amplo ou fluxo de múltiplas etapas.',
+  standard: 'Conversa ou pedido geral que não se enquadra nas outras opções.',
+};
 
 export class LayaProvider extends BaseProvider {
   readonly name = 'laya';
   readonly capabilities: Capability[] = ['decision'];
-  private fastThresholdMs: number;
+  private readonly baseUrl?: string;
+  private readonly timeoutMs: number;
 
   constructor(config: LayaConfig = {}) {
     super();
-    this.fastThresholdMs = config.fastResponseThresholdMs ?? 35;
+    this.baseUrl = config.baseUrl?.trim().replace(/\/$/, '') || undefined;
+    this.timeoutMs = config.timeoutMs ?? 2_000;
   }
 
-  /**
-   * Executa a decisão semântica System 1 em menos de 35ms.
-   */
   override async decision(input: DecisionInput): Promise<ProviderResult<DecisionResult>> {
-    const start = performance.now();
-    const text = this.extractText(input).trim();
-    const lower = text.toLowerCase();
+    const state = this.extractText(input).trim();
+    if (!state) throw new ProviderError(this.name, 'Decision text is empty', 'INVALID_INPUT', 400, false);
+    const baseUrl = this.requireBaseUrl();
+    const startedAt = performance.now();
+    const response = await this.http<LayaResponse>(`${baseUrl}/v1/systemone`, {
+      method: 'POST',
+      timeoutMs: this.timeoutMs,
+      body: {
+        model: 'multilingual',
+        state,
+        questions: {
+          route: {
+            type: 'choice',
+            instructions: 'Qual rota local deve processar esta solicitação?',
+            criteria: routeCriteria,
+          },
+        },
+      },
+    });
 
-    // 1. Detecção de Projeto Complexo / Arquitetura / Multi-Agent
-    const isComplex = this.detectComplexProject(lower);
-
-    // 2. Detecção de Tarefa de Programação / Código
-    const isCoding = this.detectCodingTask(lower, text);
-
-    // 3. Detecção de Pergunta Rápida / Saudação / Conversa Direta
-    const isFast = this.detectFastQuery(lower, text);
-
-    let decisionType: 'fast' | 'coding' | 'reasoning' | 'workflow' | 'standard' = 'standard';
-    let selectedModel = 'qwen2.5:3b';
-    let selectedProvider = 'ollama';
-    let needsBackground = false;
-    let confidence = 0.90;
-    let reason = 'General instruction query';
-    let fastResponse: string | undefined;
-    let strategy = 'single';
-
-    if (isComplex) {
-      decisionType = 'workflow';
-      selectedModel = 'claude-3-5-sonnet-latest';
-      selectedProvider = 'anthropic';
-      needsBackground = true;
-      confidence = 0.98;
-      reason = 'Complex architecture / multi-step workflow detected';
-      fastResponse = 'Identifiquei uma tarefa de alta complexidade arquitetural. Encaminhando para orquestração especializada.';
-      strategy = 'ensemble_with_judge';
-    } else if (isCoding) {
-      decisionType = 'coding';
-      selectedModel = 'deepseek-coder:6.7b';
-      selectedProvider = 'ollama';
-      needsBackground = false;
-      confidence = 0.96;
-      reason = 'Software engineering / coding task detected';
-      fastResponse = 'Identifiquei uma tarefa de código/desenvolvimento. Ativando modelo especialista DeepSeek-Coder.';
-      strategy = 'single_with_refinement';
-    } else if (isFast) {
-      decisionType = 'fast';
-      selectedModel = 'qwen2.5:1.5b';
-      selectedProvider = 'ollama';
-      needsBackground = false;
-      confidence = 0.99;
-      reason = 'Low latency direct conversational request';
-      strategy = 'single';
-      if (this.isGreeting(lower)) {
-        fastResponse = 'Olá! Como posso ajudar você hoje?';
-      }
+    const route = response?.answers?.route?.choice;
+    if (!isDecision(route)) {
+      throw new ProviderError(this.name, 'Laya returned an unknown route label', 'LAYA_INVALID_RESPONSE', 502, false);
     }
 
-    const elapsed = Math.round(performance.now() - start);
+    const confidence = response.answers?.route?.answer_confidence;
+    if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new ProviderError(this.name, 'Laya response has no valid answer confidence', 'LAYA_INVALID_RESPONSE', 502, false);
+    }
 
-    const result: DecisionResult = {
-      decision: decisionType,
-      selectedModel,
-      selectedProvider,
-      fastResponse,
-      needsBackground,
-      confidence,
-      latencyMs: elapsed,
-      reason,
-      strategy,
-      metadata: {
-        engine: 'LAYA-System1-Local',
-        under35ms: elapsed <= this.fastThresholdMs,
-        tokenEstimate: Math.ceil(text.length / 4),
-      },
-    };
-
-    return {
-      result,
-      model: 'laya-system1',
-      tokens: { prompt: Math.ceil(text.length / 4), completion: 15, total: Math.ceil(text.length / 4) + 15 },
-    };
-  }
-
-  override async chat(input: ChatInput): Promise<ProviderResponse<{ message: ChatMessage }>> {
-    const decisionRes = await this.decision({ messages: input.messages });
-    const replyText = decisionRes.result.fastResponse ||
-      `[LAYA System 1]: Decisão tomada em ${decisionRes.result.latencyMs}ms. Encaminhando para ${decisionRes.result.selectedModel} (${decisionRes.result.decision}).`;
+    const elapsed = Math.max(0, Math.round(performance.now() - startedAt));
+    const inputTokens = response.usage?.input_tokens;
+    const outputTokens = response.usage?.output_tokens;
+    const tokens = typeof inputTokens === 'number' && typeof outputTokens === 'number'
+      ? { prompt: inputTokens, completion: outputTokens, total: inputTokens + outputTokens }
+      : undefined;
 
     return {
       result: {
-        message: {
-          role: 'assistant',
-          content: replyText,
-        },
+        decision: route,
+        selectedModel: routeModels[route],
+        selectedProvider: 'ollama',
+        needsBackground: route === 'workflow',
+        confidence,
+        latencyMs: elapsed,
+        reason: `Laya classified the request as ${route}`,
+        strategy: route === 'workflow' ? 'ensemble_with_judge' : 'single',
+        metadata: { engine: 'laya-multilingual', source: 'model', upstreamModel: response.model },
       },
-      model: 'laya-system1',
-      tokens: { prompt: 10, completion: 20, total: 30 },
+      model: 'laya-multilingual',
+      ...(tokens ? { tokens } : {}),
     };
   }
 
+  override async health(): Promise<HealthStatus> {
+    if (!this.baseUrl) return { ok: false, message: 'LAYA_BASE_URL is not configured' };
+    const startedAt = Date.now();
+    try {
+      const health = await this.http<{ status?: string }>(`${this.baseUrl}/health`, { timeoutMs: 2_000 });
+      return health?.status === 'ok'
+        ? { ok: true, latencyMs: Date.now() - startedAt, modelCount: 1 }
+        : { ok: false, latencyMs: Date.now() - startedAt, message: 'Laya model is not ready' };
+    } catch {
+      return { ok: false, latencyMs: Date.now() - startedAt, message: 'Laya engine unavailable' };
+    }
+  }
+
   async models(): Promise<ModelInfo[]> {
-    return [
-      {
-        id: 'laya-system1',
-        name: 'LAYA System 1 Local Semantic Engine',
-        capabilities: ['decision'],
-        tier: 'cheap',
-        latency: 15,
-      },
-    ];
+    const health = await this.health();
+    return health.ok
+      ? [{ id: 'laya-multilingual', name: 'Laya multilingual decision model', capabilities: ['decision'], tier: 'cheap' }]
+      : [];
   }
 
   private extractText(input: DecisionInput): string {
     if (input.prompt) return input.prompt;
-    if (Array.isArray(input.messages) && input.messages.length > 0) {
-      return input.messages
-        .filter((m) => m.role === 'user')
-        .map((m) => m.content)
-        .join('\n');
+    if (input.context) return input.context;
+    return (input.messages ?? [])
+      .filter((message) => message.role === 'user')
+      .map((message) => typeof message.content === 'string' ? message.content : '')
+      .join('\n');
+  }
+
+  private requireBaseUrl(): string {
+    if (!this.baseUrl) {
+      throw new ProviderError(this.name, 'LAYA_BASE_URL is not configured', 'LAYA_ENGINE_UNAVAILABLE', 503, false);
     }
-    return '';
+    return this.baseUrl;
   }
+}
 
-  private detectComplexProject(text: string): boolean {
-    const patterns = [
-      /\b(analise|audite|refatore|reformule)\s+(o\s+)?(meu\s+)?(projeto|sistema|repositório|arquitetura)\b/,
-      /\b(multi[- ]agent|pipeline\s+completo|roadmap\s+completo|decomponha\s+a\s+tarefa)\b/,
-      /\b(arquitetura|microserviços|fullstack|monorepo)\b/,
-      /\b(planeje|crie\s+um\s+plano)\s+(de\s+)?(implementação|migração|arquitetura)\b/,
-    ];
-    return patterns.some((p) => p.test(text));
-  }
+interface LayaResponse {
+  model?: string;
+  answers?: { route?: { choice?: unknown; answer_confidence?: unknown } };
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
 
-  private detectCodingTask(lower: string, original: string): boolean {
-    // 1. Markdown code block
-    if (original.includes('```') || original.includes('function ') || original.includes('class ') || original.includes('import ')) {
-      return true;
-    }
-
-    // 2. Linguagens de programação explícitas
-    const languages = [
-      /\b(typescript|javascript|python|rust|golang|c\+\+|cpp|c#|csharp|php|ruby|java|kotlin|swift|sql|html|css|bash|shell|powershell|dockerfile)\b/,
-    ];
-    if (languages.some((rgx) => rgx.test(lower))) {
-      return true;
-    }
-
-    // 3. Ações e termos de engenharia de software
-    const codingTerms = [
-      /\b(código|codigo|code|programar|programação|programacao|script|função|funcao|endpoint|api|bug|fix|debug|refactor|refatorar)\b/,
-      /\b(prisma|database|tabela|query|migration|vitest|jest|unit test|teste unitário|regex|algoritmo|algorithm)\b/,
-      /\b(escreva\s+um|crie\s+um|desenvolva\s+um)\s+(código|script|programa|algoritmo|componente|service|controller)\b/,
-    ];
-    return codingTerms.some((rgx) => rgx.test(lower));
-  }
-
-  private detectFastQuery(lower: string, original: string): boolean {
-    if (this.isGreeting(lower)) return true;
-    if (original.length < 50 && !this.detectCodingTask(lower, original) && !this.detectComplexProject(lower)) {
-      return true;
-    }
-    return false;
-  }
-
-  private isGreeting(lower: string): boolean {
-    const cleaned = lower.replace(/[!?,.:;]/g, ' ').replace(/\s+/g, ' ').trim();
-    const greetings = ['oi', 'olá', 'ola', 'hello', 'hi', 'hey', 'bom dia', 'boa tarde', 'boa noite', 'quem é você', 'o que você faz'];
-    return greetings.some((g) => cleaned === g || cleaned.startsWith(g + ' ') || cleaned.includes(g));
-  }
+function isDecision(value: unknown): value is LayaDecision {
+  return value === 'fast' || value === 'coding' || value === 'reasoning' || value === 'workflow' || value === 'standard';
 }

@@ -357,10 +357,10 @@ export const MODEL_REGISTRY: IModel[] = [
   {
     id: 'qwen3.5:0.8b',
     provider: 'ollama',
-    capability: 'VISION',
+    capability: 'CHAT',
     contextWindow: 32768,
     streaming: true,
-    vision: true,
+    vision: false,
     audio: false,
     functionCalling: true,
     pricePer1kTokens: { prompt: 0, completion: 0 },

@@ -28,7 +28,7 @@ export interface ProviderMetrics {
  */
 const fallbackMetrics: Record<string, ProviderMetrics> = {
   // Priority 1: Local First
-  laya: { priority: 1, health: 1.0, latency: 15, contextWindow: 4096, cost: 0, throughput: 1000 },
+  laya: { priority: 1, health: 0, latency: 0, contextWindow: 4096, cost: 0, throughput: 0 },
   ollama: { priority: 1, health: 0.95, latency: 200, contextWindow: 8192, cost: 0, throughput: 50 },
   lmstudio: {
     priority: 1,
@@ -362,7 +362,10 @@ export function createRegistryFromEnv(env: Env): ProviderRegistry {
   const registry = new ProviderRegistry();
 
   registry.register(new MissionProvider(registry));
-  registry.register(new LayaProvider());
+  registry.register(new LayaProvider({
+    baseUrl: env.LAYA_BASE_URL,
+    timeoutMs: env.LAYA_TIMEOUT_MS ? Number(env.LAYA_TIMEOUT_MS) : undefined,
+  }));
   registry.register(new JevProvider({ baseUrl: env.JEV_BASE_URL, apiKey: env.JEV_API_KEY }));
 
   const ollamaBaseUrl =

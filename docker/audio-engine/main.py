@@ -67,14 +67,6 @@ def _has_espeak() -> bool:
         return False
 
 
-def _has_whisper_module() -> bool:
-    try:
-        import faster_whisper  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
 @app.get("/health")
 def health():
     tts_kokoro = _has_kokoro_weights()
@@ -83,12 +75,12 @@ def health():
     whisper_model = os.getenv("WHISPER_MODEL", "base")
     whisper_cache = MODEL_DIR / "whisper" / ("models--Systran--faster-whisper-" + whisper_model)
     whisper_cached = whisper_cache.is_dir() and any(whisper_cache.glob("snapshots/*/model.bin"))
-    stt_ready = _WHISPER is not None or whisper_cached or _has_whisper_module()
+    stt_ready = _WHISPER is not None or whisper_cached
     return {
         "status": "ready" if tts_ready and stt_ready else "degraded",
-        "sttLoaded": _WHISPER is not None or whisper_cached,
+        "sttLoaded": _WHISPER is not None,
         "ttsFilesPresent": tts_kokoro,
-        "stt": {"ready": stt_ready, "loaded": _WHISPER is not None, "model": f"faster-whisper-{whisper_model}"},
+        "stt": {"ready": stt_ready, "loaded": _WHISPER is not None, "weightsPresent": whisper_cached, "model": f"faster-whisper-{whisper_model}"},
         "tts": {
             "ready": tts_ready,
             "engine": "kokoro-82m-onnx" if tts_kokoro else "espeak-ng-dsp",
@@ -96,7 +88,7 @@ def health():
         },
         "voices": AVAILABLE_VOICES,
         "profiles": list(VOICE_PROFILES.keys()),
-        "cloning": {"ready": True, "mode": "speech-to-speech-transform"},
+        "cloning": {"ready": False, "mode": "not_supported"},
     }
 
 

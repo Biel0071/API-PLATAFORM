@@ -169,13 +169,13 @@ export const MODEL_CAPABILITY_CATALOG: ModelCapabilityInfo[] = [
   {
     id: 'qwen3.5:0.8b',
     provider: 'ollama',
-    pools: ['FAST', 'VISION', 'REASONING'],
-    capabilities: ['chat', 'vision', 'reasoning', 'tool_use', 'fast_response', 'json'],
+    pools: ['FAST', 'REASONING'],
+    capabilities: ['chat', 'reasoning', 'tool_use', 'fast_response', 'json'],
     contextWindow: 32768,
     latencyTier: 'low',
     pricingTier: 'free',
     status: 'available',
-    description: 'Qwen 3.5 0.8B Open-Source multimodal (Visão, Tool Use e Thinking).',
+    description: 'Qwen 3.5 0.8B local para texto e raciocínio leve; visão não validada nesta VPS.',
   },
 
   // --- FREE-TIER & EXTERNAL PROVIDERS ---
@@ -386,7 +386,7 @@ export class ModelCapabilityRegistry {
       case 'r1-open':
       case 'deepseek-open':
       case 'reasoning-open':
-        return 'deepseek-r1:1.5b';
+        return 'qwen3.5:0.8b';
       case 'vision-open':
       case 'qwen-vision':
         return 'qwen3.5:0.8b';

@@ -29,7 +29,7 @@ export const decideRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
   app.post('/decide', {
     schema: {
       tags: ['v1', 'decision'],
-      description: 'Endpoint System 1 para tomada de decisão semântica e classificação ultrarrápida (<35ms)',
+      description: 'Endpoint interno de classificação de intenção via Laya, com fallback heurístico identificado',
     },
   }, async (req, reply) => {
     const start = performance.now();
@@ -97,10 +97,10 @@ export const decideRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
 
     return reply.send({
       success: true,
-      provider: provider?.name || 'laya',
+      provider: decisionResult.model === 'fast-intent-heuristic' ? 'fast-intent' : provider?.name || 'laya',
       model: decisionResult.model,
       executionTime: elapsed,
-      tokens: decisionResult.tokens || { prompt: 10, completion: 15, total: 25 },
+      ...(decisionResult.tokens ? { tokens: decisionResult.tokens } : {}),
       cached: false,
       result: {
         ...decisionResult.result,
@@ -113,17 +113,20 @@ export const decideRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
 function fallbackFastIntent(body: z.infer<typeof decideSchema>): ProviderResult<DecisionResult> {
   const intent = FastIntentClassifier.classify(body.messages || [], { prompt: body.prompt });
   const decisionType = intent.isComplexProject ? 'workflow' : intent.isCoding ? 'coding' : (intent.mode === 'FAST' ? 'fast' : 'standard');
-  const selectedModel = intent.recommendedModel || (intent.isCoding ? 'deepseek-coder:6.7b' : 'qwen2.5:3b');
-  const selectedProvider = intent.isComplexProject ? 'anthropic' : 'ollama';
+  const selectedModel = intent.isCoding
+    ? 'qwen2.5-coder:1.5b'
+    : intent.isComplexProject
+      ? 'qwen3.5:0.8b'
+      : intent.mode === 'FAST'
+        ? 'gemma3:1b'
+        : 'llama3.2:1b';
+  const selectedProvider = 'ollama';
 
   return {
     result: {
       decision: decisionType,
       selectedModel,
       selectedProvider,
-      fastResponse: intent.isCoding
-        ? 'Identifiquei uma tarefa de código/desenvolvimento. Ativando especialista DeepSeek-Coder.'
-        : undefined,
       needsBackground: intent.isComplexProject === true,
       confidence: intent.confidence,
       latencyMs: 1,
@@ -133,8 +136,8 @@ function fallbackFastIntent(body: z.infer<typeof decideSchema>): ProviderResult<
           ? 'Programming task detected'
           : 'Direct standard intent',
       strategy: intent.isComplexProject ? 'ensemble_with_judge' : intent.isCoding ? 'single_with_refinement' : 'single',
+      metadata: { engine: 'fast-intent-heuristic', source: 'fallback' },
     },
-    model: 'laya-system1',
-    tokens: { prompt: 10, completion: 15, total: 25 },
+    model: 'fast-intent-heuristic',
   };
 }

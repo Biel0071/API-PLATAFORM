@@ -6,7 +6,6 @@ import {
   Capability,
   ProviderError,
   MemoryExecutionTracer,
-  LayaProvider,
   createProviderAttemptContext,
 } from '@api-platform/shared';
 import { cacheService } from './cache.service';
@@ -470,8 +469,9 @@ export class ExecutionGateway {
     
     let layaDecision: any;
     try {
-      const laya = new LayaProvider();
-      const layaResult = await providerAttemptTracker.observe(ctx.attemptContext!, { provider: laya.name, capability: 'decision' }, () => laya.decision({ prompt: userPrompt, messages }));
+      const laya = registry.get('laya');
+      if (!laya?.decision) throw new Error('Laya decision provider is unavailable');
+      const layaResult = await providerAttemptTracker.observe(ctx.attemptContext!, { provider: laya.name, capability: 'decision' }, () => laya.decision!({ prompt: userPrompt, messages }));
       layaDecision = layaResult.result;
     } catch {
       // fallback gracioso
@@ -481,40 +481,35 @@ export class ExecutionGateway {
     let mode = intent.mode;
     tracer.event('finish', 'intent_classifier', { mode, confidence: intent.confidence });
     const classification = TaskClassifier.classify(messages, { tools: payload.tools });
-    const decisionLatencyMs = Math.max(1, Date.now() - decisionStart);
+    const decisionLatencyMs = Math.max(0, Date.now() - decisionStart);
 
-    const isCoding = layaDecision?.decision === 'coding' || intent.isCoding || false;
-    const isComplex = layaDecision?.decision === 'workflow' || intent.isComplexProject || false;
-    const isFast = layaDecision?.decision === 'fast' || intent.mode === ExecutionMode.FAST || false;
+    const decisionSource = layaDecision ? 'laya-multilingual' : 'fast-intent-heuristic';
+    const isCoding = layaDecision ? layaDecision.decision === 'coding' : intent.isCoding;
+    const isComplex = layaDecision ? layaDecision.decision === 'workflow' : intent.isComplexProject;
+    const isReasoning = layaDecision ? layaDecision.decision === 'reasoning' : false;
+    const isFast = layaDecision ? layaDecision.decision === 'fast' : intent.mode === ExecutionMode.FAST;
 
     const system1Decision = {
-      decision: isComplex ? 'workflow' : isCoding ? 'coding' : (isFast ? 'fast' : 'standard'),
-      selectedModel: layaDecision?.selectedModel || intent.recommendedModel || (isCoding ? 'deepseek-coder:6.7b' : 'qwen2.5:3b'),
+      decision: isComplex
+        ? 'workflow'
+        : isCoding
+          ? 'coding'
+          : isReasoning
+            ? 'reasoning'
+            : isFast
+              ? 'fast'
+              : 'standard',
+      selectedModel: layaDecision?.selectedModel || (
+        isCoding ? 'qwen2.5-coder:1.5b' : isComplex || isReasoning ? 'qwen3.5:0.8b' : isFast ? 'gemma3:1b' : 'llama3.2:1b'
+      ),
       selectedProvider: layaDecision?.selectedProvider || 'ollama',
-      fastResponse: layaDecision?.fastResponse || (isCoding ? 'Identifiquei uma tarefa de código/desenvolvimento. Ativando especialista em código.' : undefined),
       latencyMs: decisionLatencyMs,
+      source: decisionSource,
       isCoding,
       isComplexProject: isComplex,
     };
 
     const requestedModel = (model || '').toLowerCase().trim();
-    if (['laya', 'decision', 'laya-system1'].includes(requestedModel) && !payload.forceCascade) {
-      const fastText =
-        system1Decision.fastResponse ||
-        `[LAYA System 1]: Decisão tomada em ${system1Decision.latencyMs}ms. Encaminhando para ${system1Decision.selectedModel} (${system1Decision.decision}).`;
-      ctx.decision = { mode: ExecutionMode.FAST, transport: ExecutionTransport.DIRECT, stream: false, reason: 'SYSTEM_1_FAST_DECISION' };
-      const response = {
-        result: { message: { role: 'assistant', content: fastText }, text: fastText },
-        model: 'laya-system1',
-        provider: 'laya',
-        tokens: { prompt: Math.ceil(userPrompt.length / 4), completion: 15, total: Math.ceil(userPrompt.length / 4) + 15 },
-        executionTime: decisionLatencyMs,
-        cached: false,
-      };
-      tracer.event('finish', 'gateway');
-      return { ctx, response: ResponseComposer.compose(ctx, response as any) };
-    }
-
     let effectiveModel = payload.model;
     let effectivePool = payload.pool;
     const isNonOllamaTarget = Boolean(providerAccountId || (payload.provider && payload.provider !== 'ollama'));
@@ -522,8 +517,8 @@ export class ExecutionGateway {
       if (isCoding || requestedModel === 'coding') {
         effectiveModel = 'qwen2.5-coder:1.5b';
         effectivePool = 'CODING';
-      } else if (isComplex) {
-        effectiveModel = 'deepseek-r1:1.5b';
+      } else if (isComplex || isReasoning) {
+        effectiveModel = 'qwen3.5:0.8b';
         effectivePool = 'REASONING';
       } else if (isFast || requestedModel === 'fast') {
         effectiveModel = 'gemma3:1b';
@@ -542,22 +537,11 @@ export class ExecutionGateway {
       effectiveModel = 'gemma3:1b';
       effectivePool = 'GENERAL';
     } else if (['r1-open', 'deepseek-open', 'reasoning-open', 'reasoning'].includes(requestedModel)) {
-      effectiveModel = 'deepseek-r1:1.5b';
+      effectiveModel = 'qwen3.5:0.8b';
       effectivePool = 'REASONING';
     } else if (['vision-open', 'qwen-vision', 'vision'].includes(requestedModel)) {
       effectiveModel = 'qwen3.5:0.8b';
       effectivePool = 'VISION';
-    } else if (false) {
-      if (isCoding) {
-        effectiveModel = intent.recommendedModel || 'deepseek-coder:6.7b';
-        effectivePool = 'CODING';
-      } else if (isComplex) {
-        effectiveModel = 'claude-3-5-sonnet-latest';
-        effectivePool = 'POWER';
-      } else if (isFast) {
-        effectiveModel = 'qwen2.5:1.5b';
-        effectivePool = 'FAST';
-      }
     }
 
     const requestedMode = payload.execution_mode || payload.executionMode || 'adaptive';
@@ -718,27 +702,7 @@ export class ExecutionGateway {
       }
     }
     
-    // 5. Compose (com suporte a consolidação Dual-Lane / Cascata transparente)
-    if ((payload.dualLane === true || payload.cascade === true) && system1Decision.fastResponse && !stream && rawResponse && !('stream' in rawResponse)) {
-      const rawRes = rawResponse as any;
-      const baseContent = rawRes.result?.message?.content || rawRes.result?.text || '';
-      const consolidatedContent = `/* ${system1Decision.fastResponse} */\n\n${baseContent}`;
-      if (rawRes.result?.message) {
-        rawRes.result.message.content = consolidatedContent;
-      }
-      if (rawRes.result?.text) {
-        rawRes.result.text = consolidatedContent;
-      }
-      ctx.metadata = {
-        ...ctx.metadata,
-        system1Decision: {
-          ...system1Decision,
-          consolidated: true,
-          originalFastResponse: system1Decision.fastResponse,
-        },
-      };
-    }
-
+    // 5. Compose the model-generated response; Laya only supplies route decisions.
     tracer.startComposer();
     const response = ResponseComposer.compose(ctx, rawResponse);
     tracer.finishComposer();

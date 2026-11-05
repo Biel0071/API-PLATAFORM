@@ -59,6 +59,8 @@ services:
       COMFYUI_BASE_URL: ${COMFYUI_BASE_URL_DOCKER:-http://host.docker.internal:8188}
       AUDIO_ENGINE_URL: http://audio-engine:8000
       AUDIO_STORAGE_PATH: /app/storage/audio
+      LAYA_BASE_URL: ${LAYA_BASE_URL:-}
+      LAYA_TIMEOUT_MS: ${LAYA_TIMEOUT_MS:-2000}
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     depends_on:
@@ -135,6 +137,35 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  laya-engine:
+    build:
+      context: ./docker/laya-engine
+      dockerfile: Dockerfile
+    profiles: [laya]
+    restart: unless-stopped
+    mem_limit: ${MEM_LAYA_ENGINE:-1200m}
+    cpus: ${LAYA_ENGINE_CPUS:-1}
+    environment:
+      LAYA_HOST: 0.0.0.0
+      LAYA_PORT: 8000
+      LAYA_DEVICE: cpu
+      LAYA_MODELS: multilingual
+      LAYA_DEFAULT_MODEL: multilingual
+      LAYA_PRELOAD: '1'
+      LAYA_THREADS: '1'
+      LAYA_MAX_LOADED: '1'
+      LAYA_MAX_CONCURRENT: '1'
+      HF_HOME: /models/huggingface
+    volumes:
+      - laya-models:/models
+    # Rede privada do Compose; ativacao somente apos benchmark de recursos.
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3)); raise SystemExit(0 if d.get("status") == "ok" else 1)']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
   dashboard:
     build:
@@ -239,3 +270,4 @@ volumes:
   promdata:
   grafanadata:
   audio-models:
+  laya-models:
