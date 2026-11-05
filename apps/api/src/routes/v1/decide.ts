@@ -118,7 +118,7 @@ function fallbackFastIntent(body: z.infer<typeof decideSchema>): ProviderResult<
     : intent.isComplexProject
       ? 'qwen3.5:0.8b'
       : intent.mode === 'FAST'
-        ? 'gemma3:1b'
+        ? 'qwen2.5:0.5b'
         : 'llama3.2:1b';
   const selectedProvider = 'ollama';
 

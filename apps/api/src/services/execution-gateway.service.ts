@@ -500,7 +500,7 @@ export class ExecutionGateway {
               ? 'fast'
               : 'standard',
       selectedModel: layaDecision?.selectedModel || (
-        isCoding ? 'qwen2.5-coder:1.5b' : isComplex || isReasoning ? 'qwen3.5:0.8b' : isFast ? 'gemma3:1b' : 'llama3.2:1b'
+        isCoding ? 'qwen2.5-coder:1.5b' : isComplex || isReasoning ? 'qwen3.5:0.8b' : isFast ? 'qwen2.5:0.5b' : 'llama3.2:1b'
       ),
       selectedProvider: layaDecision?.selectedProvider || 'ollama',
       latencyMs: decisionLatencyMs,
@@ -521,7 +521,7 @@ export class ExecutionGateway {
         effectiveModel = 'qwen3.5:0.8b';
         effectivePool = 'REASONING';
       } else if (isFast || requestedModel === 'fast') {
-        effectiveModel = 'gemma3:1b';
+        effectiveModel = 'qwen2.5:0.5b';
         effectivePool = 'FAST';
       } else {
         effectiveModel = 'llama3.2:1b';

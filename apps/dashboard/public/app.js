@@ -912,8 +912,8 @@
         'gemma3:1b': { alias: 'Google Gemma 3 Open', role: 'Análise Estruturada & Instruções', engine: 'Gemma 3 1B' },
         'deepseek-r1:1.5b': { alias: 'DeepSeek R1 Open', role: 'Raciocínio Lógico Profundo (CoT)', engine: 'DeepSeek R1 1.5B' },
         'qwen2.5:3b': { alias: 'Qwen 2.5 3B Orchestrator', role: 'Orquestração DAG & Consolidação', engine: 'Qwen 2.5 3B' },
-        'qwen3.5:0.8b': { alias: 'Laya System 1 · Vision', role: 'Decisão Instantânea & Visão Leve', engine: 'Qwen 3.5 0.8B' },
-        'qwen2.5:0.5b': { alias: 'Fast Intent Router', role: 'Triagem de Intenção em Baixa Latência', engine: 'Qwen 2.5 0.5B' },
+        'qwen3.5:0.8b': { alias: 'Qwen 3.5 Open', role: 'Raciocínio leve & conversação local', engine: 'Qwen 3.5 0.8B' },
+        'qwen2.5:0.5b': { alias: 'Fast Chat · Qwen', role: 'Conversas rápidas; decisão Laya quando disponível, fallback heurístico quando indisponível', engine: 'Qwen 2.5 0.5B' },
         'all-minilm': { alias: 'Embeddings Semânticos RAG', role: 'Vetorização & Memória de Execução', engine: 'All-MiniLM-L6-v2' },
         'all-minilm:latest': { alias: 'Embeddings Semânticos RAG', role: 'Vetorização & Memória de Execução', engine: 'All-MiniLM-L6-v2' },
       };
@@ -2385,7 +2385,7 @@
         return;
       }
       const liveRows = live.flatMap((p) =>
-        p.models.map((m) => { const roleMap = { 'qwen2.5-coder:1.5b': 'Claude Code Open · JEV (Código & Arquitetura)', 'llama3.2:1b': 'ChatGPT Open · Meta Llama 3.2 (Chat Geral)', 'gemma3:1b': 'Google Gemma 3 Open (Análise & Instruções)', 'deepseek-r1:1.5b': 'DeepSeek R1 Open (Raciocínio Lógico)', 'qwen2.5:3b': 'Qwen 2.5 3B (Orquestração DAG)', 'qwen3.5:0.8b': 'Laya System 1 (Decisão & Visão)', 'qwen2.5:0.5b': 'Fast Intent Router (Triagem Rápida)', 'all-minilm:latest': 'Embeddings Semânticos (RAG)', 'all-minilm': 'Embeddings Semânticos (RAG)' }; return [providerIdentity(p.name), `<span class="model-name-cell">${modelLogo(m.id, 22)}<strong>${esc(m.id)}</strong></span>`, esc(roleMap[m.id] || m.name || m.id), m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo']; }),
+        p.models.map((m) => { const roleMap = { 'qwen2.5-coder:1.5b': 'Claude Code Open · JEV (Código & Arquitetura)', 'llama3.2:1b': 'ChatGPT Open · Meta Llama 3.2 (Chat Geral)', 'gemma3:1b': 'Google Gemma 3 Open (Análise & Instruções)', 'deepseek-r1:1.5b': 'DeepSeek R1 Open (Raciocínio Lógico)', 'qwen2.5:3b': 'Qwen 2.5 3B (Orquestração DAG)', 'qwen3.5:0.8b': 'Qwen 3.5 Open (Raciocínio Leve)', 'qwen2.5:0.5b': 'Fast Chat · Qwen 2.5 0.5B (decisão Laya quando disponível)', 'all-minilm:latest': 'Embeddings Semânticos (RAG)', 'all-minilm': 'Embeddings Semânticos (RAG)' }; return [providerIdentity(p.name), `<span class="model-name-cell">${modelLogo(m.id, 22)}<strong>${esc(m.id)}</strong></span>`, esc(roleMap[m.id] || m.name || m.id), m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo']; }),
       );
       const costRows = configured.flatMap((p) =>
         p.models.map((m) => [providerIdentity(p.name), esc(m.modelId), esc(m.capability), '$' + m.costPer1kInput, '$' + m.costPer1kOutput]),

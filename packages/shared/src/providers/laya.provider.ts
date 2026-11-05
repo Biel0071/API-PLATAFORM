@@ -17,7 +17,7 @@ export interface LayaConfig {
 type LayaDecision = DecisionResult['decision'];
 
 const routeModels: Record<LayaDecision, string> = {
-  fast: 'gemma3:1b',
+  fast: 'qwen2.5:0.5b',
   coding: 'qwen2.5-coder:1.5b',
   reasoning: 'qwen3.5:0.8b',
   workflow: 'qwen3.5:0.8b',

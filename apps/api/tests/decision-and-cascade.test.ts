@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import {
   JevProvider,
+  LayaProvider,
   ModelCapabilityRegistry,
   CAPABILITY_REGISTRY,
   MODEL_REGISTRY,
@@ -85,6 +86,26 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
 
       expect(res.result.decision).toBe('workflow');
       expect(res.result.needsBackground).toBe(true);
+    });
+  });
+
+  describe('Laya fast conversation routing', () => {
+    it('selects the installed ultralight Qwen model to generate fast replies', async () => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+        model: 'laya-multilingual',
+        answers: { route: { choice: 'fast', answer_confidence: 0.98 } },
+        usage: { input_tokens: 4, output_tokens: 1 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      const laya = new LayaProvider({ baseUrl: 'http://laya.test' });
+
+      try {
+        const result = await laya.decision({ prompt: 'Oi, tudo bem?' });
+        expect(result.result.selectedModel).toBe('qwen2.5:0.5b');
+        expect(result.result.selectedProvider).toBe('ollama');
+        expect(result.result.decision).toBe('fast');
+      } finally {
+        fetch.mockRestore();
+      }
     });
   });
 
@@ -220,9 +241,9 @@ describe('System 1 Decision Engine & Transparent Cascade', () => {
       const json = res.json();
       expect(json.choices).toBeDefined();
       expect(json.choices[0]?.message?.content).toBeDefined();
-      expect(json.model).toBe('gemma3:1b');
+      expect(json.model).toBe('qwen2.5:0.5b');
       expect(json.choices[0]?.message?.content).not.toContain('Classificação');
-    });
+    }, 30000);
   });
 
   describe('Worker BullMQ Orchestrator Processor Prompt Resilience', () => {

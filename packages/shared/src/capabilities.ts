@@ -65,7 +65,7 @@ export const MODEL_CAPABILITY_CATALOG: ModelCapabilityInfo[] = [
     latencyTier: 'low',
     pricingTier: 'free',
     status: 'available',
-    description: 'Menor modelo Qwen para triagem e reconhecimento instantâneo.',
+    description: 'Modelo local ultraleve para conversas rápidas; recebe decisões Laya quando disponíveis e fallback heurístico quando não.',
   },
   {
     id: 'qwen2.5:1.5b',
