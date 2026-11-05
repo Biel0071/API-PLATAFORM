@@ -1,14 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
   <title id="title">API Platform</title>
   <defs>
-    <linearGradient id="blue" x1="34" y1="25" x2="207" y2="226" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#52d6ff"/>
-      <stop offset=".48" stop-color="#1684ff"/>
-      <stop offset="1" stop-color="#3758e8"/>
+    <linearGradient id="mark" x1="42" y1="28" x2="207" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8be5ff"/>
+      <stop offset=".48" stop-color="#39a9ff"/>
+      <stop offset="1" stop-color="#5474ff"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="20" y1="164" x2="244" y2="194" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#40dcff"/>
+      <stop offset="1" stop-color="#4385ff"/>
     </linearGradient>
   </defs>
-  <path d="M128 25 29 207h46l53-99 53 99h46L128 25Z" fill="url(#blue)"/>
+  <path d="M128 25 29 207h46l53-99 53 99h46L128 25Z" fill="url(#mark)"/>
   <path d="m94 151 34-64 34 64H94Z" fill="#091426"/>
-  <path d="M20 183c-16 51 35 70 95 47 70-27 137-88 143-137 5-37-26-50-68-39" fill="none" stroke="#28caff" stroke-linecap="round" stroke-width="7"/>
-  <circle cx="28" cy="178" r="12" fill="#fff" stroke="#1684ff" stroke-width="6"/>
+  <path d="M20 183c-16 51 35 70 95 47 70-27 137-88 143-137 5-37-26-50-68-39" fill="none" stroke="url(#orbit)" stroke-linecap="round" stroke-width="7"/>
+  <circle cx="28" cy="178" r="12" fill="#f8fcff" stroke="#36b8ff" stroke-width="6"/>
 </svg>

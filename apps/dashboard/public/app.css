@@ -3072,3 +3072,50 @@ pre, code { overflow-wrap: anywhere; }
 .apple-btn-hf:hover {
   background: #e6a745 !important;
 }
+
+/* Shared model identity and focused dashboard polish */
+.model-logo {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+.model-logo img { display: block; width: 68%; height: 68%; object-fit: contain; color: #101828; }
+.model-logo-fallback { font-size: 0.72rem; font-weight: 760; letter-spacing: -0.04em; }
+.model-logo-fallback[hidden], .model-logo img[hidden] { display: none !important; }
+.provider-model-chip { display: inline-flex; align-items: center; gap: 0.28rem; max-width: 100%; }
+.provider-model-chip .model-logo { width: 18px; height: 18px; flex-basis: 18px; border-radius: 5px; box-shadow: none; }
+.playground-model-family { display: inline-flex; min-height: 1.5rem; align-items: center; gap: 0.38rem; margin-top: 0.35rem; color: var(--text-muted); font-size: 0.75rem; }
+.playground-model-family .model-logo { width: 22px; height: 22px; flex-basis: 22px; border-radius: 6px; }
+.model-name-cell { display: inline-flex; max-width: 100%; align-items: center; gap: 0.55rem; }
+.model-name-cell strong { min-width: 0; overflow-wrap: anywhere; }
+.inspector-model-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.inspector-model-heading .model-logo { width: 30px; height: 30px; flex-basis: 30px; }
+.inspector-model-card { border-radius: 14px; box-shadow: inset 0 1px rgba(255, 255, 255, 0.025); }
+.inspector-model-card.is-default { box-shadow: inset 0 1px rgba(48, 209, 88, 0.1); }
+.provider-card, .card, .section, .modal-card { backdrop-filter: blur(18px) saturate(135%); }
+.page-header h1, #content > h1 { letter-spacing: -0.035em; }
+:where(button, .btn, a.button-link, input, select, textarea) { transition-duration: 160ms; }
+:where(button, .btn, a.button-link):focus-visible { outline-offset: 3px; }
+
+@media (max-width: 600px) {
+  .model-logo { width: 30px; height: 30px; flex-basis: 30px; }
+  .inspector-model-heading { align-items: flex-start; }
+  .inspector-model-heading .model-name-cell { max-width: 100%; }
+  .inspector-model-heading .badge { margin-left: 2.3rem; }
+  .page-header { gap: 0.75rem; }
+}

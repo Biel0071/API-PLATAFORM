@@ -10,6 +10,22 @@
   const scheduleView = (callback, delay) => { clearTimeout(viewTimer); viewTimer = setTimeout(callback, delay); };
   const isViewStale = (controller = viewController) => controller.signal.aborted;
   const showFieldError = (selector, message) => { const el = $(selector); if (el) { el.textContent = message; el.className = 'error'; } };
+  const modelFamily = (modelId) => {
+    const id = String(modelId || '').toLowerCase();
+    if (/qwen|laya/.test(id)) return { asset: 'qwen', label: 'Qwen', monogram: 'Q' };
+    if (/deepseek/.test(id)) return { asset: 'deepseek', label: 'DeepSeek', monogram: 'D' };
+    if (/llama|meta/.test(id)) return { asset: 'meta', label: 'Meta Llama', monogram: 'L' };
+    if (/gemma/.test(id)) return { asset: 'gemma', label: 'Gemma', monogram: 'G' };
+    if (/minilm|embedding/.test(id)) return { asset: 'huggingface', label: 'Sentence Transformers', monogram: 'ST' };
+    return { asset: null, label: 'Modelo de IA', monogram: 'AI' };
+  };
+  const modelLogo = (modelId, size = 24) => {
+    const family = modelFamily(modelId);
+    const img = family.asset
+      ? `<img src="assets/${family.asset === 'huggingface' ? 'providers' : 'models'}/${family.asset}.svg" width="${size}" height="${size}" alt="" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" />`
+      : '';
+    return `<span class="model-logo" role="img" title="${esc(family.label)}" aria-label="${esc(family.label)}">${img}<span class="model-logo-fallback"${family.asset ? ' hidden' : ''} aria-hidden="true">${family.monogram}</span></span>`;
+  };
 
   // ---------- Auth ----------
   const token = () => localStorage.getItem('apiplatform_token');
@@ -1080,7 +1096,7 @@
               ? '<div class="provider-card-status"><span class="provider-status ' + status[0] + '"><span aria-hidden="true">●</span> ' + status[1] + '</span>' + (isActiveConnection ? '<span class="apple-active-pill">✓ Ativa</span>' : '') + (account?.accountTier ? '<span class="tier-badge tier-' + esc(account.accountTier.toLowerCase()) + '">' + esc(account.accountTier.toUpperCase()) + '</span>' : '') + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>'
               : (isActiveConnection ? '<div class="provider-card-status"><span class="provider-status ok"><span aria-hidden="true">●</span> Conexão ativa</span>' + (defaults?.chat === name ? '<span class="provider-default-label">Provedor padrão de chat</span>' : '') + '</div>' : '')) +
             (account ? '<p class="provider-models">' + esc(account.authMode === 'local' ? account.baseUrl || 'Servidor local' : account.authMode === 'oauth' ? 'Conta OAuth' : 'API key / token') + (account.defaultModel ? ' · ' + esc(account.defaultModel) : '') + '</p>' : '') +
-            (isActiveConnection ? '<div class="provider-card-model-tags" aria-label="Modelos ativos na conexão">' + visibleModels.map(model => { const osInfo = openSourceModelRoles[model]; return '<span class="model-tag" title="' + esc(osInfo ? `${model} — ${osInfo.alias} (${osInfo.role})` : model) + '">' + esc(model) + '</span>'; }).join('') + (extraModelsCount > 0 ? '<span class="model-tag">+' + extraModelsCount + '</span>' : '') + '</div>' : '') +
+            (isActiveConnection ? '<div class="provider-card-model-tags" aria-label="Modelos ativos na conexão">' + visibleModels.map(model => { const osInfo = openSourceModelRoles[model]; return '<span class="model-tag provider-model-chip" title="' + esc(osInfo ? `${model} — ${osInfo.alias} (${osInfo.role})` : model) + '">' + modelLogo(model, 16) + esc(model) + '</span>'; }).join('') + (extraModelsCount > 0 ? '<span class="model-tag">+' + extraModelsCount + '</span>' : '') + '</div>' : '') +
             (account ? '<div class="provider-usage-panel" data-account-usage="' + esc(account.id) + '" aria-label="Uso estimado da conta">' + renderUsage(account) + '</div>' : '') +
             (() => {
             const directAccountConfigs = {
@@ -1974,7 +1990,7 @@
                       <div class="inspector-model-card ${isDefault ? 'is-default' : ''}">
                         <div>
                           <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;flex-wrap:wrap;">
-                            <strong style="font-size:0.86rem;color:#f8fafc;word-break:break-all;">${esc(modelId)}</strong>
+                            <span class="model-name-cell">${modelLogo(modelId, 28)}<strong>${esc(modelId)}</strong></span>
                             ${isDefault ? '<span class="badge ok" style="font-size:0.62rem;padding:0.15rem 0.45rem;">Padrão da Conta</span>' : ''}
                           </div>
                           <div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin:0.35rem 0 0.25rem;">
@@ -2369,7 +2385,7 @@
         return;
       }
       const liveRows = live.flatMap((p) =>
-        p.models.map((m) => { const roleMap = { 'qwen2.5-coder:1.5b': 'Claude Code Open · JEV (Código & Arquitetura)', 'llama3.2:1b': 'ChatGPT Open · Meta Llama 3.2 (Chat Geral)', 'gemma3:1b': 'Google Gemma 3 Open (Análise & Instruções)', 'deepseek-r1:1.5b': 'DeepSeek R1 Open (Raciocínio Lógico)', 'qwen2.5:3b': 'Qwen 2.5 3B (Orquestração DAG)', 'qwen3.5:0.8b': 'Laya System 1 (Decisão & Visão)', 'qwen2.5:0.5b': 'Fast Intent Router (Triagem Rápida)', 'all-minilm:latest': 'Embeddings Semânticos (RAG)', 'all-minilm': 'Embeddings Semânticos (RAG)' }; return [providerIdentity(p.name), `<strong>${esc(m.id)}</strong>`, esc(roleMap[m.id] || m.name || m.id), m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo']; }),
+        p.models.map((m) => { const roleMap = { 'qwen2.5-coder:1.5b': 'Claude Code Open · JEV (Código & Arquitetura)', 'llama3.2:1b': 'ChatGPT Open · Meta Llama 3.2 (Chat Geral)', 'gemma3:1b': 'Google Gemma 3 Open (Análise & Instruções)', 'deepseek-r1:1.5b': 'DeepSeek R1 Open (Raciocínio Lógico)', 'qwen2.5:3b': 'Qwen 2.5 3B (Orquestração DAG)', 'qwen3.5:0.8b': 'Laya System 1 (Decisão & Visão)', 'qwen2.5:0.5b': 'Fast Intent Router (Triagem Rápida)', 'all-minilm:latest': 'Embeddings Semânticos (RAG)', 'all-minilm': 'Embeddings Semânticos (RAG)' }; return [providerIdentity(p.name), `<span class="model-name-cell">${modelLogo(m.id, 22)}<strong>${esc(m.id)}</strong></span>`, esc(roleMap[m.id] || m.name || m.id), m.sizeBytes ? (m.sizeBytes >= 1e9 ? (m.sizeBytes / 1e9).toFixed(2) + ' GB' : Math.round(m.sizeBytes / 1e6) + ' MB') : 'Ativo']; }),
       );
       const costRows = configured.flatMap((p) =>
         p.models.map((m) => [providerIdentity(p.name), esc(m.modelId), esc(m.capability), '$' + m.costPer1kInput, '$' + m.costPer1kOutput]),
@@ -2452,7 +2468,7 @@
                 ${providers.filter(p => p.capabilities.includes('chat')).map((p) => `<option value="${esc(p.name)}" ${preset?.provider === p.name ? 'selected' : ''}>${esc(p.name)} ${p.health?.ok ? '✓ online' : (p.models?.length ? '✓ ativo' : '(offline)')}</option>`).join('')}
               </select>
             </label>
-            <label>Modelo opcional <input id="test-model" placeholder="padrão do provider" value="${esc(preset?.model || '')}" /></label>
+            <label>Modelo opcional <input id="test-model" placeholder="padrão do provider" value="${esc(preset?.model || '')}" /><span id="test-model-family" class="playground-model-family" aria-live="polite"></span></label>
           </div>
           <label>Prompt <textarea id="test-prompt" rows="3">Responda apenas: sistema funcionando</textarea></label>
           <div class="toolbar" style="margin-top:1.25rem;">
@@ -2474,6 +2490,13 @@
         cot: 'Resolva passo a passo: Se temos 3 servidores distribuídos e um falha com 25% de probabilidade, qual a probabilidade de quorum maioritário (ao menos 2 online)?',
         json: 'Retorne exclusivamente um JSON com as chaves: "status", "version", "capabilities" e "timestamp".',
       };
+      const updateModelFamily = () => {
+        const modelId = $('#test-model').value.trim();
+        const identity = $('#test-model-family');
+        identity.innerHTML = modelId ? `${modelLogo(modelId, 20)}<span>${esc(modelFamily(modelId).label)}</span>` : '';
+      };
+      $('#test-model').addEventListener('input', updateModelFamily);
+      updateModelFamily();
       content().querySelectorAll('[data-prompt-preset]').forEach(btn => {
         btn.onclick = () => {
           content().querySelectorAll('[data-prompt-preset]').forEach(b => b.classList.toggle('active', b === btn));
@@ -3056,7 +3079,7 @@
       try { data=await api('/admin/providers'); }
       catch(err){ toast(err.message,'error'); content().innerHTML=`<h1>Ollama</h1><p class="error">Erro ao carregar dados do provider: ${esc(err.message)}</p>`; return; }
       const p=data.providers.find(x=>x.name==='ollama');
-      content().innerHTML=`<h1>Ollama</h1>${p?`<div class="cards">${card('Status',p.health?.ok?'online':'offline',p.health?.ok?'ok':'error')}${card('Latência',p.health?.latencyMs!=null?fmtMs(p.health.latencyMs):'—')}${card('Modelos',p.models?.length||0)}${card('Capacidades',(p.capabilities||[]).join(', '))}</div><div class="section"><h2>Modelos instalados</h2>${table(['Modelo','Nome'],(p.models||[]).map(m=>[esc(m.id),esc(m.name||m.id)]))}</div>`:'<p class="empty-state">Ollama não está configurado.</p>'}<a class="button-link" href="#/providers">Configurar providers</a>`;
+      content().innerHTML=`<h1>Ollama</h1>${p?`<div class="cards">${card('Status',p.health?.ok?'online':'offline',p.health?.ok?'ok':'error')}${card('Latência',p.health?.latencyMs!=null?fmtMs(p.health.latencyMs):'—')}${card('Modelos',p.models?.length||0)}${card('Capacidades',(p.capabilities||[]).join(', '))}</div><div class="section"><h2>Modelos instalados</h2>${table(['Modelo','Nome'],(p.models||[]).map(m=>[`<span class="model-name-cell">${modelLogo(m.id, 22)}<strong>${esc(m.id)}</strong></span>`,esc(m.name||m.id)]))}</div>`:'<p class="empty-state">Ollama não está configurado.</p>'}<a class="button-link" href="#/providers">Configurar providers</a>`;
     },
     async baseUrl() {
       const base=location.origin;
